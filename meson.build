@@ -65,9 +65,15 @@ endif
 
 ### Iniparser
 iniparser_dep = cc.find_library('iniparser', has_headers: 'iniparser.h', required: false)
+
+if not iniparser_dep.found()
+   iniparser_dep = cc.find_library('iniparser', has_headers: 'iniparser/iniparser.h', required: false)
+endif
+
 if not iniparser_dep.found()
    iniparser_dep = cc.find_library('iniparser4', has_headers: 'iniparser4/iniparser.h', required: false)
 endif
+
 if not iniparser_dep.found()
    error('iniparser library is required')
 else
