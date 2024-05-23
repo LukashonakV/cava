@@ -64,6 +64,13 @@ static const struct pw_stream_events stream_events = {
     .process = on_process,
 };
 
+static void do_quit(void *userdata, int signal_number) {
+    struct pw_data *data = userdata;
+    data->cava_audio->terminate = 1;
+    pw_log_warn("pw quit signal %d received, terminating...", signal_number);
+    pw_main_loop_quit(data->loop);
+}
+
 void *input_pipewire(void *audiodata) {
     struct pw_data data = {
         0,
@@ -74,20 +81,34 @@ void *input_pipewire(void *audiodata) {
     uint8_t buffer[data.cava_audio->input_buffer_size];
     struct pw_properties *props;
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-    char **argv;
     uint32_t nom;
     nom = nearbyint((10000 * data.cava_audio->rate) / 1000000.0);
 
-    pw_init(0, &argv);
+    pw_init(0, 0);
 
     data.loop = pw_main_loop_new(NULL);
+    if (data.loop == NULL) {
+        data.cava_audio->terminate = 1;
+        sprintf(data.cava_audio->error_message,
+                __FILE__ ": Could not create main loop. Is your system running pipewire? Maybe try "
+                         "pulse input method instead.");
+        return 0;
+    }
+
+    pw_loop_add_signal(pw_main_loop_get_loop(data.loop), SIGINT, do_quit, &data);
+    pw_loop_add_signal(pw_main_loop_get_loop(data.loop), SIGTERM, do_quit, &data);
 
     props = pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Capture",
                               PW_KEY_MEDIA_ROLE, "Music", NULL);
 
-    pw_properties_set(props, PW_KEY_TARGET_OBJECT, data.cava_audio->source);
-    pw_properties_set(props, PW_KEY_STREAM_CAPTURE_SINK, "true");
+    const char *source = data.cava_audio->source;
+    if (strcmp(source, "auto") == 0) {
+        pw_properties_set(props, PW_KEY_STREAM_CAPTURE_SINK, "true");
+    } else {
+        pw_properties_set(props, PW_KEY_TARGET_OBJECT, source);
+    }
     pw_properties_setf(props, PW_KEY_NODE_LATENCY, "%u/%u", nom, data.cava_audio->rate);
+    pw_properties_set(props, PW_KEY_NODE_ALWAYS_PROCESS, "true");
 
     data.stream = pw_stream_new_simple(pw_main_loop_get_loop(data.loop), "cava", props,
                                        &stream_events, &data);
