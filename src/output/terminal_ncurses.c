@@ -7,6 +7,8 @@
 
 #include "cava/util.h"
 
+typedef unsigned short us16_t;
+
 int gradient_size = 64;
 
 struct colors {
@@ -43,7 +45,7 @@ static void parse_color(char *color_string, struct colors *color) {
             exit(EXIT_FAILURE);
         }
         color->color = COLOR_REDEFINITION;
-        sscanf(++color_string, "%02hx%02hx%02hx", &color->R, &color->G, &color->B);
+        sscanf(++color_string, "%02hx%02hx%02hx", (us16_t*)&color->R, (us16_t*)&color->G, (us16_t*)&color->B);
     }
 }
 /*

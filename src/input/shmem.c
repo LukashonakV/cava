@@ -93,7 +93,7 @@ void *input_shmem(void *data) {
     }
 
     if (munmap(mmap_area, mmap_count) != 0) {
-        fprintf(stderr, "Could not munmap() area %p+%d. %s", mmap_area, mmap_count,
+        fprintf(stderr, "Could not munmap() area %p+%d. %s", (void*)mmap_area, mmap_count,
                 strerror(errno));
     }
     return 0;
