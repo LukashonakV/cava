@@ -500,36 +500,27 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         char *cfgPathOrig = (char *)malloc(PATH_MAX * sizeof(char));
         strcpy(cfgPathOrig, configPath);
         configPath[0] = '\0';
-
         const char *delimiter = "/";
-        char *pch_1 = cfgPathOrig;
-        char *pch_2 = strpbrk(pch_1 + 1, delimiter); // search for the first delimiter
+        short int addDelimiter = 0;
         char *env = NULL;
-        int lag = 0; // manages the lag where to look $ after strpbrk
 
-        while (pch_2 != NULL) {
-            char *dest = (char *)malloc((pch_2 - pch_1 - 1) * sizeof(char));
-            strncpy(dest, pch_1, (pch_2 - pch_1));
+        if (*cfgPathOrig == *delimiter)
+            addDelimiter = 1;
 
-            if (*(dest + lag) == '$') {
-                env = getenv(dest + lag + 1);
-
-                if (env != NULL) {
-                    if (lag > 0 && env != delimiter)
-                        strcat(configPath, delimiter);
-                    strcat(configPath, env);
-                } else
-                    strcat(configPath, dest);
+        for (char *pch = strtok(cfgPathOrig, delimiter); pch != NULL;
+             pch = strtok(NULL, delimiter)) {
+            if (addDelimiter == 1)
+                strcat(configPath, delimiter);
+            if (*pch == '$')
+                env = getenv(pch + 1);
+            if (env && *env) {
+                strcat(configPath, env);
+                env = NULL;
             } else
-                strcat(configPath, dest);
-
-            free(dest);
-            lag = 1;
-            pch_1 = pch_2;
-            pch_2 = strpbrk(pch_1 + 1, delimiter);
+                strcat(configPath, pch);
+            addDelimiter = 1;
         }
 
-        strcat(configPath, pch_1);
         free(cfgPathOrig);
 
         fp = fopen(configPath, "rb");
