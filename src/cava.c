@@ -189,6 +189,11 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 if (p.disable_blanking)
                     system("setterm -blank 0");
 #endif
+                if (p.orientation != ORIENT_BOTTOM) {
+                    cleanup(output_mode);
+                    fprintf(stderr, "only default bottom orientation is supported in tty\n");
+                    exit(EXIT_FAILURE);
+                }
             }
 
             // We use unicode block characters to draw the bars and
@@ -260,7 +265,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             if (timeout_counter > 2000) {
                 cleanup(output_mode);
                 fprintf(stderr, "could not get rate and/or format, problems with audio thread? "
-                                "quiting...\n");
+                                "quitting...\n");
                 exit(EXIT_FAILURE);
             }
         }
@@ -442,8 +447,9 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 // output: draw processed input
 #ifdef NDEBUG
                 if (p.sync_updates) {
-                    printf("\033P=1s\033\\");
+                    printf("\033[2026h\033\\");
                     fflush(stdout);
+                    printf("\033[2026l\033\\");
                 }
                 int rc;
 #ifdef _MSC_VER
@@ -468,10 +474,21 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     break;
 #endif
                 case OUTPUT_NONCURSES:
-                    rc = draw_terminal_noncurses(
-                        p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
-                        p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                        audio_raw.previous_frame, p.gradient, p.x_axis_info);
+                    if (p.orientation == ORIENT_SPLIT_H) {
+                        rc = draw_terminal_noncurses(
+                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
+                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
+                            audio_raw.previous_frame, p.gradient, p.x_axis_info, ORIENT_BOTTOM, 1);
+                        rc = draw_terminal_noncurses(
+                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
+                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
+                            audio_raw.previous_frame, p.gradient, p.x_axis_info, ORIENT_TOP, 1);
+                    } else {
+                        rc = draw_terminal_noncurses(
+                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
+                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
+                            audio_raw.previous_frame, p.gradient, p.x_axis_info, p.orientation, 0);
+                    }
                     break;
                 case OUTPUT_NCURSES:
 #ifdef NCURSES
@@ -496,11 +513,12 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 default:
                     exit(EXIT_FAILURE); // Can't happen.
                 }
-                if (p.sync_updates) {
-                    printf("\033P=2s\033\\");
-                    fflush(stdout);
-                }
 
+                if (p.sync_updates) {
+                    printf("\033[2026h\033\\");
+                    fflush(stdout);
+                    printf("\033[2026l\033\\");
+                }
                 // terminal has been resized breaking to recalibrating values
                 if (rc == -1)
                     resizeTerminal = true;
