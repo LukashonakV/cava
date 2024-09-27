@@ -4,22 +4,27 @@
 #include <math.h>
 #include <sys/stat.h>
 
-float *monstercat_filter(float *bars, int number_of_bars, int waves, double monstercat) {
+float *monstercat_filter(float *bars, int number_of_bars, int waves, double monstercat,
+                         int height) {
     int z;
 
     // process [smoothing]: monstercat-style "average"
     int m_y, de;
+    float height_normalizer = 1.0;
+    if (height > 1000) {
+        height_normalizer = height / 912.76;
+    }
     if (waves > 0) {
         for (z = 0; z < number_of_bars; z++) { // waves
             bars[z] = bars[z] / 1.25;
             // if (bars[z] < 1) bars[z] = 1;
             for (m_y = z - 1; m_y >= 0; m_y--) {
                 de = z - m_y;
-                bars[m_y] = max(bars[z] - pow(de, 2), bars[m_y]);
+                bars[m_y] = max(bars[z] - height_normalizer * pow(de, 2), bars[m_y]);
             }
             for (m_y = z + 1; m_y < number_of_bars; m_y++) {
                 de = m_y - z;
-                bars[m_y] = max(bars[z] - pow(de, 2), bars[m_y]);
+                bars[m_y] = max(bars[z] - height_normalizer * pow(de, 2), bars[m_y]);
             }
         }
     } else if (monstercat > 0) {
@@ -98,7 +103,8 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
         init_terminal_noncurses(prm->inAtty, prm->color, prm->bcolor, prm->col, prm->bgcol,
                                 prm->gradient, prm->gradient_count, prm->gradient_colors,
-                                audio_raw->width, audio_raw->lines, prm->bar_width);
+                                audio_raw->width, audio_raw->lines, prm->bar_width,
+                                prm->orientation);
         audio_raw->height = audio_raw->lines * 8;
         break;
 #ifndef _MSC_VER
@@ -216,7 +222,7 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     if (plan->status == -1) {
         cleanup(prm->output);
-        fprintf(stderr, "Error initalizing cava . %s", plan->error_message);
+        fprintf(stderr, "Error initializing cava . %s", plan->error_message);
         exit(EXIT_FAILURE);
     }
 
@@ -311,7 +317,9 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
                 prm->sens *= 0.999;
             else
                 prm->sens *= 1.0001;
-            audio_raw->cava_out[n] = (audio_raw->cava_out[n] + 1.0) / 2.0;
+
+            if (prm->orientation != ORIENT_SPLIT_H)
+                audio_raw->cava_out[n] = (audio_raw->cava_out[n] + 1.0) / 2.0;
         }
 
         if (prm->output == OUTPUT_SDL_GLSL) {
@@ -321,6 +329,9 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
                 audio_raw->cava_out[n] = 0.0;
         } else {
             audio_raw->cava_out[n] *= *audio_raw->dimension_value;
+            if (prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) {
+                audio_raw->cava_out[n] /= 2;
+            }
         }
         if (prm->waveform) {
             audio_raw->bars_raw[n] = audio_raw->cava_out[n];
@@ -357,13 +368,14 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
             if (audio_raw->channels == 2) {
                 audio_raw->bars_left = monstercat_filter(
                     audio_raw->bars_left, audio_raw->number_of_bars / audio_raw->output_channels,
-                    prm->waves, prm->monstercat);
+                    prm->waves, prm->monstercat, *audio_raw->dimension_value);
                 audio_raw->bars_right = monstercat_filter(
                     audio_raw->bars_right, audio_raw->number_of_bars / audio_raw->output_channels,
-                    prm->waves, prm->monstercat);
+                    prm->waves, prm->monstercat, *audio_raw->dimension_value);
             } else {
-                audio_raw->bars_raw = monstercat_filter(
-                    audio_raw->bars_raw, audio_raw->number_of_bars, prm->waves, prm->monstercat);
+                audio_raw->bars_raw =
+                    monstercat_filter(audio_raw->bars_raw, audio_raw->number_of_bars, prm->waves,
+                                      prm->monstercat, *audio_raw->dimension_value);
             }
         }
         if (audio_raw->channels == 2) {

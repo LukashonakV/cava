@@ -140,7 +140,7 @@ bool validate_colors(void *params, void *err) {
 
     if (p->gradient) {
         if (p->gradient_count < 2) {
-            write_errorf(error, "\nAtleast two colors must be given as gradient!\n");
+            write_errorf(error, "\nAt least two colors must be given as gradient!\n");
             return false;
         }
         if (p->gradient_count > 8) {
@@ -291,18 +291,39 @@ bool validate_config(struct config_params *p, struct error_s *error) {
     }
 
     p->orientation = ORIENT_BOTTOM;
-    if (p->output == OUTPUT_SDL || p->output == OUTPUT_NCURSES) {
-        if (strcmp(orientation, "top") == 0) {
-            p->orientation = ORIENT_TOP;
+    if (strcmp(orientation, "top") == 0) {
+        p->orientation = ORIENT_TOP;
+    }
+    if (strcmp(orientation, "left") == 0) {
+        p->orientation = ORIENT_LEFT;
+    }
+    if (strcmp(orientation, "right") == 0) {
+        p->orientation = ORIENT_RIGHT;
+    }
+    if (strcmp(orientation, "horizontal") == 0) {
+        if (p->output != OUTPUT_NONCURSES) {
+            write_errorf(error, "only noncurses output suports horizontal orientation\n");
+            return false;
         }
-        if (strcmp(orientation, "left") == 0) {
-            p->orientation = ORIENT_LEFT;
-        }
-        if (strcmp(orientation, "right") == 0) {
-            p->orientation = ORIENT_RIGHT;
-        }
+        p->orientation = ORIENT_SPLIT_H;
+    }
+    if ((p->orientation == ORIENT_LEFT || p->orientation == ORIENT_RIGHT) &&
+        !(p->output == OUTPUT_SDL || p->output == OUTPUT_NCURSES)) {
+        write_errorf(error, "only ncurses and sdl supports left/right orientation\n");
+        return false;
+    }
+    if ((p->orientation == ORIENT_TOP) &&
+        !(p->output == OUTPUT_SDL || p->output == OUTPUT_NCURSES ||
+          p->output == OUTPUT_NONCURSES)) {
+        write_errorf(error, "only noncurses, ncurses and sdl supports top orientation\n");
+        return false;
     }
 
+    if ((p->orientation != ORIENT_BOTTOM && p->output == OUTPUT_SDL && p->gradient != 0)) {
+        write_errorf(error,
+                     "gradient in sdl is not supported with top, left or right orientation\n");
+        return false;
+    }
     p->xaxis = NONE;
     if (strcmp(xaxisScale, "none") == 0) {
         p->xaxis = NONE;
@@ -570,20 +591,19 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 
     p->gradient = iniparser_getint(ini, "color:gradient", 0);
-    p->gradient_count = iniparser_getint(ini, "color:gradient_count", 8);
     for (int i = 0; i < 8; ++i) {
         free(p->gradient_colors[i]);
     }
     free(p->gradient_colors);
-    p->gradient_colors = (char **)malloc(sizeof(char *) * p->gradient_count * 9);
-    p->gradient_colors[0] = strdup(iniparser_getstring(ini, "color:gradient_color_1", "#59cc33"));
-    p->gradient_colors[1] = strdup(iniparser_getstring(ini, "color:gradient_color_2", "#80cc33"));
-    p->gradient_colors[2] = strdup(iniparser_getstring(ini, "color:gradient_color_3", "#a6cc33"));
-    p->gradient_colors[3] = strdup(iniparser_getstring(ini, "color:gradient_color_4", "#cccc33"));
-    p->gradient_colors[4] = strdup(iniparser_getstring(ini, "color:gradient_color_5", "#cca633"));
-    p->gradient_colors[5] = strdup(iniparser_getstring(ini, "color:gradient_color_6", "#cc8033"));
-    p->gradient_colors[6] = strdup(iniparser_getstring(ini, "color:gradient_color_7", "#cc5933"));
-    p->gradient_colors[7] = strdup(iniparser_getstring(ini, "color:gradient_color_8", "#cc3333"));
+    p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+    p->gradient_colors[0] = strdup(iniparser_getstring(ini, "color:gradient_color_1", "not_set"));
+    p->gradient_colors[1] = strdup(iniparser_getstring(ini, "color:gradient_color_2", "not_set"));
+    p->gradient_colors[2] = strdup(iniparser_getstring(ini, "color:gradient_color_3", "not_set"));
+    p->gradient_colors[3] = strdup(iniparser_getstring(ini, "color:gradient_color_4", "not_set"));
+    p->gradient_colors[4] = strdup(iniparser_getstring(ini, "color:gradient_color_5", "not_set"));
+    p->gradient_colors[5] = strdup(iniparser_getstring(ini, "color:gradient_color_6", "not_set"));
+    p->gradient_colors[6] = strdup(iniparser_getstring(ini, "color:gradient_color_7", "not_set"));
+    p->gradient_colors[7] = strdup(iniparser_getstring(ini, "color:gradient_color_8", "not_set"));
 
 #else
     outputMethod = malloc(sizeof(char) * 32);
@@ -603,26 +623,33 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     GetPrivateProfileString("color", "foreground", "default", p->color, 9, configPath);
     GetPrivateProfileString("color", "background", "default", p->bcolor, 9, configPath);
     p->gradient = GetPrivateProfileInt("color", "gradient", 0, configPath);
-    p->gradient_count = GetPrivateProfileInt("color", "gradient_count", 8, configPath);
 
-    GetPrivateProfileString("color", "gradient_color_1", "#59cc33", p->gradient_colors[0], 9,
+    GetPrivateProfileString("color", "gradient_color_1", "not_set", p->gradient_colors[0], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_2", "#80cc33", p->gradient_colors[1], 9,
+    GetPrivateProfileString("color", "gradient_color_2", "not_set", p->gradient_colors[1], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_3", "#a6cc33", p->gradient_colors[2], 9,
+    GetPrivateProfileString("color", "gradient_color_3", "not_set", p->gradient_colors[2], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_4", "#cccc33", p->gradient_colors[3], 9,
+    GetPrivateProfileString("color", "gradient_color_4", "not_set", p->gradient_colors[3], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_5", "#cca633", p->gradient_colors[4], 9,
+    GetPrivateProfileString("color", "gradient_color_5", "not_set", p->gradient_colors[4], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_6", "#cc8033", p->gradient_colors[5], 9,
+    GetPrivateProfileString("color", "gradient_color_6", "not_set", p->gradient_colors[5], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_7", "#cc5933", p->gradient_colors[6], 9,
+    GetPrivateProfileString("color", "gradient_color_7", "not_set", p->gradient_colors[6], 9,
                             configPath);
-    GetPrivateProfileString("color", "gradient_color_8", "#cc3333", p->gradient_colors[7], 9,
+    GetPrivateProfileString("color", "gradient_color_8", "not_set", p->gradient_colors[7], 9,
                             configPath);
 
 #endif
+    p->gradient_count = 0;
+    for (int i = 0; i < 7; ++i) {
+        if (strcmp(p->gradient_colors[i], "not_set") != 0)
+            p->gradient_count++;
+        else
+            break;
+    }
+
     if (colorsOnly) {
         return validate_colors(p, error);
     }
@@ -701,7 +728,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
 
     p->waveform = iniparser_getint(ini, "output:waveform", 0);
 
-    p->sync_updates = iniparser_getint(ini, "output:alacritty_sync", 0);
+    p->sync_updates = iniparser_getint(ini, "output:synchronized_sync", 0);
 
     vertexShader = strdup(iniparser_getstring(ini, "output:vertex_shader", "pass_through.vert"));
     fragmentShader =
@@ -846,7 +873,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->sdl_x = GetPrivateProfileInt("output", "sdl_x", -1, configPath);
     p->sdl_y = GetPrivateProfileInt("output", "sdl_y", -1, configPath);
 
-    p->sync_updates = GetPrivateProfileInt("output", "alacritty_sync", 0, configPath);
+    p->sync_updates = GetPrivateProfileInt("output", "synchronized_sync", 0, configPath);
     p->show_idle_bar_heads = GetPrivateProfileInt("output", "show_idle_bar_heads", 1, configPath);
     p->waveform = GetPrivateProfileInt("output", "waveform", 0, configPath);
 

@@ -32,7 +32,7 @@
 ; bar_width = 20
 ; bar_spacing = 5
 
-# sdl_glsl have these default values, they are only used to calulate max number of bars.
+# sdl_glsl have these default values, they are only used to calculate max number of bars.
 ; bar_width = 1
 ; bar_spacing = 0
 
@@ -144,10 +144,12 @@
 # use one of the predefined ones.
 ; method = noncurses
 
-# Orientation of the visualization. Can be 'bottom', 'top', 'left' or 'right'.
-# Default is 'bottom'. Other orientations are only supported on sdl and ncruses
-# output. Note: many fonts have weird glyphs for 'top' and 'right' characters,
-# which can make ncurses not look right.
+# Orientation of the visualization. Can be 'bottom', 'top', 'left', 'right' or
+# 'horizontal'. Default is 'bottom'. 'left and 'right' are only supported on sdl
+# and ncruses output. 'horizontal' (bars go up and down from center) is only supported
+# on noncurses output.
+# Note: many fonts have weird or missing glyphs for characters used in orientations
+# other than 'bottom', which can make output not look right.
 ; orientation = bottom
 
 # Visual channels. Can be 'stereo' or 'mono'.
@@ -187,11 +189,11 @@
 # 'frequency' displays the lower cut off frequency of the bar above.
 # Only supported on ncurses and noncurses output.
 ; xaxis = none
-
-# enable alacritty synchronized updates. 1 = on, 0 = off
+ 
+# enable synchronized sync. 1 = on, 0 = off
 # removes flickering in alacritty terminal emulator.
 # defaults to off since the behaviour in other terminal emulators is unknown
-; alacritty_sync = 0
+; synchronized_sync = 0
 
 # Shaders for sdl_glsl, located in $HOME/.config/cava/shaders
 ; vertex_shader = pass_through.vert
@@ -228,7 +230,6 @@
 # background must also be defined in hex or remain commented out. 1 = on, 0 = off.
 # You can define as many as 8 different colors. They range from bottom to top of screen
 ; gradient = 0
-; gradient_count = 8
 ; gradient_color_1 = '#59cc33'
 ; gradient_color_2 = '#80cc33'
 ; gradient_color_3 = '#a6cc33'
