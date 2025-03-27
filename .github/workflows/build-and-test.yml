@@ -42,6 +42,36 @@ jobs:
       run: gcc -o cavacore_test cavacore_test.o src/cava-cavacore.o -lm -lfftw3
     - name: run cavacore test application
       run: ./cavacore_test
+  build-linux-meson:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install libfftw3-dev libasound2-dev libncursesw5-dev libpulse-dev libtool automake autoconf-archive libiniparser-dev portaudio19-dev libsndio-dev libsdl2-2.0-0 libsdl2-dev squeezelite pulseaudio libpipewire-0.3-dev meson
+    - name: configure project
+      run: meson setup -Dcpp_std=c++20 -Dbuild_target=all build
+    - name: Run make
+      run: ninja -C build
+    - name: Prepare tests
+      run: |
+        pulseaudio -D
+        squeezelite -o pulse -v -m 51:fb:32:f8:e6:9f -z
+    - name: run non zero test
+      run: ./build/cava -p example_files/test_configs/non_zero_test > /dev/null
+    - name: run pulseaudio test
+      run: ./build/cava -p example_files/test_configs/pulse_zero_test > /dev/null
+    - name: run fifo test
+      run: ./build/cava -p example_files/test_configs/fifo_zero_test > /dev/null
+    - name: run shmem test
+      run: ./build/cava -p example_files/test_configs/shmem_zero_test > /dev/null
+    - name: build cavacore test application
+      run: gcc -c -g cavacore_test.c
+    - name: link cavacore test application
+      run: gcc -o cavacore_test cavacore_test.c build/libcava.so.p/src_cavacore.c.o -lm -lfftw3
+    - name: run cavacore test application
+      run: ./cavacore_test
 
   build-macos:
     runs-on: macos-latest
