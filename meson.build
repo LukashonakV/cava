@@ -255,9 +255,17 @@ if jack_dep.found()
    add_project_arguments('-DJACK', language: 'c')
 endif
 
+### Define target
+is_exe = false
+foreach p : get_option('build_target')
+   if not is_exe and p != 'lib'
+       is_exe = true
+   endif
+endforeach
+
 ### Cava font
 have_font = false
-if get_option('cava_font')
+if get_option('cava_font') and is_exe
    if is_freebsd
       vtfontcvt_prog = find_program('vtfontcvt', native: true)
       psf2bdf_prog = find_program('psf2bdf', native: true)
