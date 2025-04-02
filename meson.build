@@ -299,6 +299,7 @@ if get_option('cava_font') and is_exe
 endif
 
 if have_font
+   message('Cava font support')
    add_project_arguments('-DFONTDIR="@0@"'.format(font_dir), language: 'c')
    add_project_arguments('-DFONTFILE="@0@"'.format(font_file), language: 'c')
    add_project_arguments('-DCAVAFONT', language: 'c')
@@ -318,17 +319,14 @@ cava_dep = declare_dependency(link_with: cava_lib,
                               dependencies: deps,
                               include_directories: inc_dirs)
 
-foreach p : get_option('build_target')
-    if p != 'lib'
-       executable('cava',
-                  [src_files, 'src/cava.c'],
-                  dependencies: deps,
-                  include_directories: inc_dirs,
-                  c_args: c_args,
-                  install: true)
-       break
-    endif
-endforeach
+if is_exe
+   executable('cava',
+              [src_files, 'src/cava.c'],
+              dependencies: deps,
+              include_directories: inc_dirs,
+              c_args: c_args,
+              install: true)
+endif
 
 install_headers(h_files, subdir: 'cava')
 install_headers(h_I_files, subdir: 'cava/input')
