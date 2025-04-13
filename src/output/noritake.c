@@ -1,10 +1,18 @@
+#include "cava/output/noritake.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#ifndef _WIN32
 #include <unistd.h>
 
 int print_ntk_out(int bars_count, int fd, int bit_format, int bar_width, int bar_spacing,
                   int bar_height, int const f[]) {
+#else
+#define _CRT_SECURE_NO_WARNINGS 1
+
+int print_ntk_out(int bars_count, HANDLE hFile, int bit_format, int bar_width, int bar_spacing,
+                  int bar_height, int const f[]) {
+#endif
     int8_t buf_8;
     int8_t val1;
     uint64_t bits;
@@ -22,12 +30,20 @@ int print_ntk_out(int bars_count, int fd, int bit_format, int bar_width, int bar
         for (k = 0; k < bar_width; k++) {
             for (j = 0; j < bar_height / 8; j++) {
                 buf_8 = bits >> (8 * (bar_height / 8 - 1 - j)) & 0xff;
+#ifndef _WIN32
                 write(fd, &buf_8, sizeof(int8_t));
+#else
+                WriteFile(hFile, &buf_8, sizeof(int8_t), NULL, NULL);
+#endif
             }
         }
         buf_8 = 0;
         for (j = 0; j < bar_height / 8 * bar_spacing; j++) {
+#ifndef _WIN32
             write(fd, &buf_8, sizeof(int8_t));
+#else
+            WriteFile(hFile, &buf_8, sizeof(int8_t), NULL, NULL);
+#endif
         }
     }
     return 0;

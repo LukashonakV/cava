@@ -1,6 +1,11 @@
 #include "cava/common.h"
-#ifdef _MSC_VER
-#include "winscap.h"
+
+#ifndef _WIN32
+#include <dirent.h>
+#endif
+
+#ifdef _WIN32
+#include "cava/input/winscap.h"
 #else
 #include "cava/input/alsa.h"
 #include "cava/input/fifo.h"
@@ -11,9 +16,8 @@
 #include "cava/input/pulse.h"
 #include "cava/input/shmem.h"
 #include "cava/input/sndio.h"
-#endif
+#endif // _WIN32
 #include "cava/debug.h"
-#include <dirent.h>
 #include <limits.h>
 #include <math.h>
 #include <string.h>
@@ -24,7 +28,11 @@ int write_to_cava_input_buffers(int16_t samples, unsigned char *buf, void *data)
     struct audio_data *audio = (struct audio_data *)data;
     pthread_mutex_lock(&audio->lock);
     while (audio->suspendFlag) {
+#ifndef _WIN32
         sleep(1);
+#else
+        Sleep(1);
+#endif
         pthread_cond_wait(&audio->resumeCond, &audio->lock);
     }
 
@@ -117,7 +125,7 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
 
     debug("starting audio thread\n");
     switch (prm->input) {
-#ifndef _MSC_VER
+#ifndef _WIN32
 
 #ifdef ALSA
     case INPUT_ALSA:
@@ -169,6 +177,7 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
     case INPUT_PORTAUDIO:
         audio->format = 16;
         audio->rate = 44100;
+        audio->threadparams = 1;
         ret = &input_portaudio;
         break;
 #endif
@@ -202,9 +211,9 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
 
 #endif
 
-#ifdef _MSC_VER
+#ifdef _WIN32
     case INPUT_WINSCAP:
-        ret = &input_wisncap;
+        ret = &input_winscap;
         break;
 #endif
 
