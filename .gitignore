@@ -23,4 +23,5 @@ missing
 version
 config_file.h
 .*
+*.user
 cava

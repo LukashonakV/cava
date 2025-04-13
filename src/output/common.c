@@ -50,7 +50,10 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     if (prm->upper_cut_off > audio->rate / 2) {
         cleanup(prm->output);
-        fprintf(stderr, "higher cuttoff frequency can't be higher than sample rate / 2");
+        fprintf(stderr,
+                "higher cutoff frequency can't be higher than sample rate / 2\nhigher "
+                "cutoff frequency is set to: %d, got sample rate: %d\n",
+                prm->upper_cut_off, audio->rate);
         exit(EXIT_FAILURE);
     }
 
@@ -101,16 +104,12 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
         if (prm->xaxis != NONE)
             audio_raw->lines--;
 
-        init_terminal_noncurses(prm->inAtty, prm->color, prm->bcolor, prm->col, prm->bgcol,
-                                prm->gradient, prm->gradient_count, prm->gradient_colors,
-                                audio_raw->width, audio_raw->lines, prm->bar_width,
-                                prm->orientation);
         audio_raw->height = audio_raw->lines * 8;
         break;
-#ifndef _MSC_VER
     case OUTPUT_RAW:
     case OUTPUT_NORITAKE:
         if (strcmp(prm->raw_target, "/dev/stdout") != 0) {
+#ifndef _WIN32
             int fptest;
             // checking if file exists
             if (access(prm->raw_target, F_OK) != -1) {
@@ -131,11 +130,32 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
                 fptest = open(prm->raw_target, O_RDONLY | O_NONBLOCK, 0644);
             }
             prm->fp = open(prm->raw_target, O_WRONLY | O_NONBLOCK | O_CREAT, 0644);
+#else
+            int pipeLength = strlen("\\\\.\\pipe\\") + strlen(prm->raw_target) + 1;
+            char *pipePath = malloc(pipeLength);
+            pipePath[pipeLength - 1] = '\0';
+            strcat(pipePath, "\\\\.\\pipe\\");
+            strcat(pipePath, prm->raw_target);
+            DWORD pipeMode = strcmp(prm->data_format, "ascii")
+                                 ? PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE
+                                 : PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
+            prm->hFile = CreateNamedPipeA(pipePath, PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
+                                          pipeMode | PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES, 0, 0,
+                                          NMPWAIT_USE_DEFAULT_WAIT, NULL);
+            free(pipePath);
+#endif
         } else {
+#ifndef _WIN32
             prm->fp = fileno(stdout);
+#else
+            prm->hFile = GetStdHandle(STD_OUTPUT_HANDLE);
+#endif
         }
-
+#ifndef _WIN32
         if (prm->fp == -1) {
+#else
+        if (prm->hFile == INVALID_HANDLE_VALUE) {
+#endif
             fprintf(stderr, "could not open file %s for writing\n", prm->raw_target);
             exit(1);
         }
@@ -156,10 +176,13 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
             audio_raw->height = prm->ascii_range;
         }
         break;
-#endif
     default:
         exit(EXIT_FAILURE); // Can't happen.
     }
+
+    // force stereo if only one channel is available
+    if (prm->stereo && audio->channels == 1)
+        prm->stereo = 0;
 
     // handle for user setting too many bars
     if (prm->fixedbars) {
@@ -187,10 +210,6 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     audio_raw->output_channels = 1;
     if (prm->stereo) { // stereo must have even numbers of bars
-        if (audio->channels == 1) {
-            fprintf(stderr, "stereo output configured, but only one channel in audio input.\n");
-            exit(1);
-        }
         audio_raw->output_channels = 2;
         if (audio_raw->number_of_bars % 2 != 0)
             audio_raw->number_of_bars--;
@@ -202,6 +221,14 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
     if (audio_raw->remainder < 0)
         audio_raw->remainder = 0;
 
+    if (prm->output == OUTPUT_NONCURSES) {
+        init_terminal_noncurses(prm->inAtty, prm->color, prm->bcolor, prm->col, prm->bgcol,
+                                prm->gradient, prm->gradient_count, prm->gradient_colors,
+                                prm->horizontal_gradient, prm->horizontal_gradient_count,
+                                prm->horizontal_gradient_colors, audio_raw->number_of_bars,
+                                audio_raw->width, audio_raw->lines, prm->bar_width,
+                                prm->orientation, prm->blendDirection);
+    }
 #ifndef NDEBUG
     debug("height: %d width: %d dimension_bar: %d dimension_value: %d bars:%d bar width: "
           "%d remainder: %d\n",
@@ -237,12 +264,14 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     audio_raw->bars = (int *)malloc(audio_raw->number_of_bars * sizeof(int));
     audio_raw->bars_raw = (float *)malloc(audio_raw->number_of_bars * sizeof(float));
+    audio_raw->previous_bars_raw = (float *)malloc(audio_raw->number_of_bars * sizeof(float));
     audio_raw->previous_frame = (int *)malloc(audio_raw->number_of_bars * sizeof(int));
     audio_raw->cava_out = (double *)malloc(audio_raw->number_of_bars * audio->channels /
                                            audio_raw->output_channels * sizeof(double));
 
     memset(audio_raw->bars, 0, sizeof(int) * audio_raw->number_of_bars);
     memset(audio_raw->bars_raw, 0, sizeof(float) * audio_raw->number_of_bars);
+    memset(audio_raw->previous_bars_raw, 0, sizeof(float) * audio_raw->number_of_bars);
     memset(audio_raw->previous_frame, 0, sizeof(int) * audio_raw->number_of_bars);
     memset(audio_raw->cava_out, 0,
            sizeof(double) * audio_raw->number_of_bars * audio->channels /
@@ -305,9 +334,13 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     return 0;
 }
-
+#ifndef SDL_GLSL
+int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm,
+                    struct cava_plan *plan) {
+#else
 int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int *re_paint,
                     struct cava_plan *plan) {
+#endif
     (void)plan;
     for (int n = 0; n < audio_raw->number_of_bars; n++) {
         if (!prm->waveform) {

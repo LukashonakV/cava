@@ -1,10 +1,10 @@
 name: build-and-test
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
     - uses: DoozyX/clang-format-lint-action@v0.5
       with:
         source: '.'
@@ -13,7 +13,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -76,10 +76,10 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
     - name: Install dependencies
       run: |
-        brew install fftw libtool automake autoconf-archive portaudio iniparser sdl2
+        brew install fftw libtool automake portaudio iniparser sdl2
         ln -s /usr/local/bin/glibtoolize /usr/local/bin/libtoolize
     - name: Generate configuresdl2
       run: PATH="/opt/homebrew/opt/libtool/libexec/gnubin:$PATH" ./autogen.sh
@@ -89,3 +89,33 @@ jobs:
       run:  make CFLAGS='-Werror'
     - name: run non zero test
       run: ./cava -p example_files/test_configs/non_zero_test > /dev/null
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v2
+    - name: Install dependencies
+      run: nuget restore cava_win\cava_win.sln
+    - name: Run msbuild
+      run: msbuild /p:Configuration=Debug cava_win\cava_win.sln
+
+  build-mingw:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        msystem: [ucrt64, clang64]
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{matrix.msystem}}
+        pacboy: cc cmake fftw glew ninja SDL2
+    - name: Run cmake build
+      run: |
+        cmake -B bin
+        cmake --build bin

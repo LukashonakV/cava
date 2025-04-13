@@ -3,7 +3,7 @@
 #include "cava/util.h"
 
 #include <ctype.h>
-#ifndef _MSC_VER
+#ifndef _WIN32
 #if __has_include(<iniparser.h>)
 #include <iniparser.h>
 #elif __has_include(<iniparser/iniparser.h>)
@@ -24,13 +24,38 @@
 
 #include <sys/stat.h>
 
-#define NUMBER_OF_SHADERS 3
+#define NUMBER_OF_SHADERS 6
 
-#ifdef _MSC_VER
-#include "Windows.h"
+#ifdef _WIN32
+#include "Shlwapi.h"
+#define TEXTFILE 256
+#define IDR_CONFIG_FILE 101
+#define IDR_BAR_SPECTRUM_SHADER 102
+#define IDR_NORTHERN_LIGHTS_SHADER 103
+#define IDR_PASS_THROUGH_SHADER 104
+#define IDR_SPECTROGRAM_SHADER 105
+#define IDR_WINAMP_LINE_STYLE_SPECTRUM_SHADER 106
+#define IDR_EYE_OF_PHI_SHADER 107
 #define PATH_MAX 260
 #define PACKAGE "cava"
 #define _CRT_SECURE_NO_WARNINGS 1
+
+static void LoadFileInResource(int name, int type, DWORD *size, const char **data) {
+    HMODULE handle = GetModuleHandle(NULL);
+    HRSRC rc = FindResource(handle, MAKEINTRESOURCE(name), MAKEINTRESOURCE(type));
+    HGLOBAL rcData = LoadResource(handle, rc);
+    if (size) {
+        *size = SizeofResource(handle, rc);
+    }
+    if (data) {
+        *data = (const char *)(LockResource(rcData));
+    }
+}
+
+int default_shader_data[NUMBER_OF_SHADERS] = {
+    IDR_NORTHERN_LIGHTS_SHADER, IDR_PASS_THROUGH_SHADER,
+    IDR_BAR_SPECTRUM_SHADER,    IDR_WINAMP_LINE_STYLE_SPECTRUM_SHADER,
+    IDR_SPECTROGRAM_SHADER,     IDR_EYE_OF_PHI_SHADER};
 #else
 #define INCBIN_SILENCE_BITCODE_WARNING
 #include "third_party/incbin.h"
@@ -40,15 +65,22 @@ INCTXT(ConfigFile, "example_files/config");
 // add your custom shaders to be installed here
 INCTXT(bar_spectrum, "src/output/shaders/bar_spectrum.frag");
 INCTXT(northern_lightsfrag, "src/output/shaders/northern_lights.frag");
+INCTXT(winamp_line_style_spectrum, "src/output/shaders/winamp_line_style_spectrum.frag");
+INCTXT(spectrogram, "src/output/shaders/spectrogram.frag");
+INCTXT(eye_of_phi, "src/output/shaders/eye_of_phi.frag");
+
 INCTXT(pass_throughvert, "src/output/shaders/pass_through.vert");
 
 // INCTXT will create a char g<name>Data
-const char *default_shader_data[NUMBER_OF_SHADERS] = {gnorthern_lightsfragData,
-                                                      gpass_throughvertData, gbar_spectrumData};
-#endif // _MSC_VER
+const char *default_shader_data[NUMBER_OF_SHADERS] = {
+    gnorthern_lightsfragData,        gpass_throughvertData, gbar_spectrumData,
+    gwinamp_line_style_spectrumData, gspectrogramData,      geye_of_phiData};
+#endif // _WIN32
 // name of the installed shader file, technically does not have to be the same as in the source
-const char *default_shader_name[NUMBER_OF_SHADERS] = {"northern_lights.frag", "pass_through.vert",
-                                                      "bar_spectrum.frag"};
+const char *default_shader_name[NUMBER_OF_SHADERS] = {
+    "northern_lights.frag", "pass_through.vert",
+    "bar_spectrum.frag",    "winamp_line_style_spectrum.frag",
+    "spectrogram.frag",     "eye_of_phi.frag"};
 
 double smoothDef[5] = {1, 1, 1, 1, 1};
 
@@ -58,7 +90,7 @@ enum input_method default_methods[] = {
 };
 
 char *outputMethod, *orientation, *channels, *xaxisScale, *monoOption, *fragmentShader,
-    *vertexShader;
+    *vertexShader, *blendDirection;
 
 const char *input_method_names[] = {
     "fifo", "portaudio", "pipewire", "alsa", "pulse", "sndio", "oss", "jack", "shmem", "winscap",
@@ -150,6 +182,27 @@ bool validate_colors(void *params, void *err) {
 
         for (int i = 0; i < p->gradient_count; i++) {
             if (!validate_color(p->gradient_colors[i], p, error)) {
+                write_errorf(
+                    error,
+                    "Gradient color %d is invalid. It must be HTML color of the form '#xxxxxx'.\n",
+                    i + 1);
+                return false;
+            }
+        }
+    }
+
+    if (p->horizontal_gradient) {
+        if (p->horizontal_gradient_count < 2) {
+            write_errorf(error, "\nAt least two colors must be given as gradient!\n");
+            return false;
+        }
+        if (p->horizontal_gradient_count > 8) {
+            write_errorf(error, "\nMaximum 8 colors can be specified as gradient!\n");
+            return false;
+        }
+
+        for (int i = 0; i < p->horizontal_gradient_count; i++) {
+            if (!validate_color(p->horizontal_gradient_colors[i], p, error)) {
                 write_errorf(
                     error,
                     "Gradient color %d is invalid. It must be HTML color of the form '#xxxxxx'.\n",
@@ -290,6 +343,17 @@ bool validate_config(struct config_params *p, struct error_s *error) {
         return false;
     }
 
+    p->blendDirection = ORIENT_BOTTOM;
+    if (strcmp(blendDirection, "down") == 0) {
+        p->blendDirection = ORIENT_TOP;
+    }
+    if (strcmp(blendDirection, "left") == 0) {
+        p->blendDirection = ORIENT_LEFT;
+    }
+    if (strcmp(blendDirection, "right") == 0) {
+        p->blendDirection = ORIENT_RIGHT;
+    }
+
     p->orientation = ORIENT_BOTTOM;
     if (strcmp(orientation, "top") == 0) {
         p->orientation = ORIENT_TOP;
@@ -302,7 +366,7 @@ bool validate_config(struct config_params *p, struct error_s *error) {
     }
     if (strcmp(orientation, "horizontal") == 0) {
         if (p->output != OUTPUT_NONCURSES) {
-            write_errorf(error, "only noncurses output suports horizontal orientation\n");
+            write_errorf(error, "only noncurses output supports horizontal orientation\n");
             return false;
         }
         p->orientation = ORIENT_SPLIT_H;
@@ -319,11 +383,18 @@ bool validate_config(struct config_params *p, struct error_s *error) {
         return false;
     }
 
-    if ((p->orientation != ORIENT_BOTTOM && p->output == OUTPUT_SDL && p->gradient != 0)) {
+    if ((p->orientation != ORIENT_BOTTOM && p->output == OUTPUT_SDL &&
+         (p->gradient != 0 || p->horizontal_gradient != 0))) {
         write_errorf(error,
                      "gradient in sdl is not supported with top, left or right orientation\n");
         return false;
     }
+
+    if (strcmp(fragmentShader, "eye_of_phi.frag") == 0) {
+        p->fixedbars = 8;
+        p->stereo = 0;
+    }
+
     p->xaxis = NONE;
     if (strcmp(xaxisScale, "none") == 0) {
         p->xaxis = NONE;
@@ -339,19 +410,19 @@ bool validate_config(struct config_params *p, struct error_s *error) {
     p->stereo = -1;
     if (strcmp(channels, "mono") == 0) {
         p->stereo = 0;
-        if (strcmp(monoOption, "average") == 0) {
-            p->mono_opt = AVERAGE;
-        } else if (strcmp(monoOption, "left") == 0) {
-            p->mono_opt = LEFT;
-        } else if (strcmp(monoOption, "right") == 0) {
-            p->mono_opt = RIGHT;
-        } else {
-            write_errorf(error,
-                         "mono option %s is not supported, supported options are: 'average', "
-                         "'left' or 'right'\n",
-                         monoOption);
-            return false;
-        }
+    }
+    if (strcmp(monoOption, "average") == 0) {
+        p->mono_opt = AVERAGE;
+    } else if (strcmp(monoOption, "left") == 0) {
+        p->mono_opt = LEFT;
+    } else if (strcmp(monoOption, "right") == 0) {
+        p->mono_opt = RIGHT;
+    } else {
+        write_errorf(error,
+                     "mono option %s is not supported, supported options are: 'average', "
+                     "'left' or 'right'\n",
+                     monoOption);
+        return false;
     }
     if (strcmp(channels, "stereo") == 0)
         p->stereo = 1;
@@ -430,35 +501,45 @@ bool validate_config(struct config_params *p, struct error_s *error) {
 
 bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colorsOnly,
                  struct error_s *error) {
+#ifdef _WIN32
+    p->hFile = NULL;
+#endif
     FILE *fp;
-    char cava_config_home[PATH_MAX / 2];
+    char *cava_config_home = malloc(PATH_MAX / 2);
 
     // config: creating path to default config file
     char *configHome = getenv("XDG_CONFIG_HOME");
     if (configHome != NULL) {
         sprintf(cava_config_home, "%s/%s/", configHome, PACKAGE);
+#ifndef _WIN32
         mkdir(cava_config_home, 0777);
-    } else {
-#ifndef _MSC_VER
-        configHome = getenv("HOME");
-
 #else
-        configHome = getenv("userprofile");
+        CreateDirectoryA(cava_config_home, NULL);
 #endif
+    } else {
+#ifndef _WIN32
+        configHome = getenv("HOME");
+#else
+        configHome = getenv("USERPROFILE");
+#endif
+
         if (configHome != NULL) {
             sprintf(cava_config_home, "%s/%s/", configHome, ".config");
-            mkdir(cava_config_home, 0777);
-
-            sprintf(cava_config_home, "%s/%s/%s/", configHome, ".config", PACKAGE);
-            mkdir(cava_config_home, 0777);
-        } else {
-#ifndef _MSC_VER
-            sprintf(cava_config_home, "/tmp/%s/", PACKAGE);
+#ifndef _WIN32
             mkdir(cava_config_home, 0777);
 #else
+            CreateDirectoryA(cava_config_home, NULL);
+#endif
+
+            sprintf(cava_config_home, "%s/%s/%s/", configHome, ".config", PACKAGE);
+#ifndef _WIN32
+            mkdir(cava_config_home, 0777);
+#else
+            CreateDirectoryA(cava_config_home, NULL);
+#endif
+        } else {
             write_errorf(error, "No HOME found (ERR_HOMELESS), exiting...");
             return false;
-#endif
         }
     }
     if (configPath[0] == '\0') {
@@ -471,17 +552,14 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         if (fp) {
             fseek(fp, 0, SEEK_END);
             if (ftell(fp) == 0) {
-#ifndef _MSC_VER
                 printf("config file is empty, creating default config file\n");
-                fwrite(gConfigFileData, gConfigFileSize - 1, sizeof(char), fp);
-#else
-                printf(
-                    "WARNING: config file is empty, windows does not support automatic default "
-                    "config "
-                    "generation.\n An empty file was created at %s, overwrite with the default "
-                    "config from the source to get a complete and documented list of options.\n\n",
-                    configPath);
+#ifdef _WIN32
+                DWORD gConfigFileSize = 0;
+                const char *gConfigFileData = NULL;
+                LoadFileInResource(IDR_CONFIG_FILE, TEXTFILE, &gConfigFileSize, &gConfigFileData);
+                gConfigFileSize += 1;
 #endif
+                fwrite(gConfigFileData, gConfigFileSize - 1, sizeof(char), fp);
             }
             fclose(fp);
         } else {
@@ -494,8 +572,18 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
                 return false;
             }
         }
-
     } else { // opening specified file
+#ifdef _WIN32
+        // GetPrivateProfileString does not accept relative paths
+        if (PathIsRelativeA(configPath) == TRUE) {
+            char newPath[PATH_MAX];
+            GetCurrentDirectoryA(PATH_MAX - 1 - strlen(configPath), newPath);
+            strcat(newPath, "\\");
+            strcat(newPath, configPath);
+            memset(configPath, 0, sizeof(configPath));
+            strcpy(configPath, newPath);
+        }
+#endif
         // expand env variables in configPath
         char *cfgPathOrig = (char *)malloc(PATH_MAX * sizeof(char));
         strcpy(cfgPathOrig, configPath);
@@ -522,7 +610,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         }
 
         free(cfgPathOrig);
-
         fp = fopen(configPath, "rb");
         if (fp) {
             fclose(fp);
@@ -531,11 +618,14 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
             return false;
         }
     }
-
     // create default shader files if they do not exist
     char *shaderPath = malloc(sizeof(char) * PATH_MAX);
     sprintf(shaderPath, "%s/shaders", cava_config_home);
+#ifndef _WIN32
     mkdir(shaderPath, 0777);
+#else
+    CreateDirectoryA(shaderPath, NULL);
+#endif
 
     for (int i = 0; i < NUMBER_OF_SHADERS; i++) {
         char *shaderFile = malloc(sizeof(char) * PATH_MAX);
@@ -545,16 +635,14 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         if (fp) {
             fseek(fp, 0, SEEK_END);
             if (ftell(fp) == 0) {
-#ifndef _MSC_VER
                 printf("shader file is empty, creating default shader file\n");
+#ifndef _WIN32
                 fwrite(default_shader_data[i], strlen(default_shader_data[i]), sizeof(char), fp);
 #else
-                printf(
-                    "WARNING: shader file is empty, windows does not support automatic default "
-                    "shader "
-                    "generation.\n In order to use the shader copy the file %s from the source to "
-                    "%s\n\n",
-                    default_shader_name[i], shaderPath);
+                DWORD shaderDataSize = 0;
+                const char *shaderData = NULL;
+                LoadFileInResource(default_shader_data[i], TEXTFILE, &shaderDataSize, &shaderData);
+                fwrite(shaderData, shaderDataSize, sizeof(char), fp);
 #endif
             }
             fclose(fp);
@@ -562,15 +650,18 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         }
     }
     free(shaderPath);
-
     p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
     for (int i = 0; i < 8; ++i) {
         p->gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
     }
+    p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+    for (int i = 0; i < 8; ++i) {
+        p->horizontal_gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
+    }
     p->vertex_shader = malloc(sizeof(char) * PATH_MAX);
     p->fragment_shader = malloc(sizeof(char) * PATH_MAX);
 
-#ifndef _MSC_VER
+#ifndef _WIN32
     // config: parse ini
     dictionary *ini;
     ini = iniparser_load(configPath);
@@ -585,6 +676,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     for (int i = 0; i < 8; ++i) {
         free(p->gradient_colors[i]);
     }
+
     free(p->gradient_colors);
     p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
     p->gradient_colors[0] = strdup(iniparser_getstring(ini, "color:gradient_color_1", "not_set"));
@@ -595,6 +687,29 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->gradient_colors[5] = strdup(iniparser_getstring(ini, "color:gradient_color_6", "not_set"));
     p->gradient_colors[6] = strdup(iniparser_getstring(ini, "color:gradient_color_7", "not_set"));
     p->gradient_colors[7] = strdup(iniparser_getstring(ini, "color:gradient_color_8", "not_set"));
+
+    p->horizontal_gradient = iniparser_getint(ini, "color:horizontal_gradient", 0);
+    for (int i = 0; i < 8; ++i) {
+        free(p->horizontal_gradient_colors[i]);
+    }
+    free(p->horizontal_gradient_colors);
+    p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+    p->horizontal_gradient_colors[0] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_1", "not_set"));
+    p->horizontal_gradient_colors[1] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_2", "not_set"));
+    p->horizontal_gradient_colors[2] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_3", "not_set"));
+    p->horizontal_gradient_colors[3] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_4", "not_set"));
+    p->horizontal_gradient_colors[4] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_5", "not_set"));
+    p->horizontal_gradient_colors[5] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_6", "not_set"));
+    p->horizontal_gradient_colors[6] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_7", "not_set"));
+    p->horizontal_gradient_colors[7] =
+        strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_8", "not_set"));
 
 #else
     outputMethod = malloc(sizeof(char) * 32);
@@ -608,6 +723,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->raw_target = malloc(sizeof(char) * 129);
     p->data_format = malloc(sizeof(char) * 32);
     orientation = malloc(sizeof(char) * 32);
+    blendDirection = malloc(sizeof(char) * 32);
     vertexShader = malloc(sizeof(char) * PATH_MAX / 2);
     fragmentShader = malloc(sizeof(char) * PATH_MAX / 2);
 
@@ -632,6 +748,25 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     GetPrivateProfileString("color", "gradient_color_8", "not_set", p->gradient_colors[7], 9,
                             configPath);
 
+    p->horizontal_gradient = GetPrivateProfileInt("color", "horizontal_gradient", 0, configPath);
+
+    GetPrivateProfileString("color", "horizontal_gradient_color_1", "not_set",
+                            p->horizontal_gradient_colors[0], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_2", "not_set",
+                            p->horizontal_gradient_colors[1], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_3", "not_set",
+                            p->horizontal_gradient_colors[2], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_4", "not_set",
+                            p->horizontal_gradient_colors[3], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_5", "not_set",
+                            p->horizontal_gradient_colors[4], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_6", "not_set",
+                            p->horizontal_gradient_colors[5], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_7", "not_set",
+                            p->horizontal_gradient_colors[6], 9, configPath);
+    GetPrivateProfileString("color", "horizontal_gradient_color_8", "not_set",
+                            p->horizontal_gradient_colors[7], 9, configPath);
+
 #endif
     p->gradient_count = 0;
     for (int i = 0; i < 7; ++i) {
@@ -640,11 +775,18 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         else
             break;
     }
+    p->horizontal_gradient_count = 0;
+    for (int i = 0; i < 7; ++i) {
+        if (strcmp(p->horizontal_gradient_colors[i], "not_set") != 0)
+            p->horizontal_gradient_count++;
+        else
+            break;
+    }
 
     if (colorsOnly) {
         return validate_colors(p, error);
     }
-#ifndef _MSC_VER
+#ifndef _WIN32
 
     outputMethod = strdup(iniparser_getstring(ini, "output:method", "noncurses"));
 
@@ -685,6 +827,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     free(p->data_format);
     free(vertexShader);
     free(fragmentShader);
+    free(blendDirection);
 
     channels = strdup(iniparser_getstring(ini, "output:channels", "stereo"));
     monoOption = strdup(iniparser_getstring(ini, "output:mono_option", "average"));
@@ -695,6 +838,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->frame_delim = (char)iniparser_getint(ini, "output:frame_delimiter", 10);
     p->ascii_range = iniparser_getint(ini, "output:ascii_max_range", 1000);
     p->bit_format = iniparser_getint(ini, "output:bit_format", 16);
+    blendDirection = strdup(iniparser_getstring(ini, "color:blend_direction", "up"));
 
     p->sdl_width = iniparser_getint(ini, "output:sdl_width", 1000);
     p->sdl_height = iniparser_getint(ini, "output:sdl_height", 500);
@@ -834,6 +978,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->noise_reduction = GetPrivateProfileInt("smoothing", "noise_reduction", 77, configPath);
     GetPrivateProfileString("output", "xaxis", "none", xaxisScale, 16, configPath);
     GetPrivateProfileString("output", "orientation", "bottom", orientation, 16, configPath);
+    GetPrivateProfileString("color", "blend_orientation", "up", orientation, 16, configPath);
 
     p->fixedbars = GetPrivateProfileInt("general", "bars", 0, configPath);
 
@@ -852,9 +997,9 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     GetPrivateProfileString("output", "channels", "stereo", channels, 16, configPath);
     GetPrivateProfileString("output", "mono_option", "average", monoOption, 16, configPath);
     p->reverse = GetPrivateProfileInt("output", "reverse", 0, configPath);
-    GetPrivateProfileString("output", "raw_target", "stdout", p->raw_target, 64, configPath);
+    GetPrivateProfileString("output", "raw_target", "/dev/stdout", p->raw_target, 64, configPath);
     GetPrivateProfileString("output", "data_format", "binary", p->data_format, 16, configPath);
-    p->bar_delim = (char)GetPrivateProfileInt("output", "bar_delimiter", 50, configPath);
+    p->bar_delim = (char)GetPrivateProfileInt("output", "bar_delimiter", 59, configPath);
     p->frame_delim = (char)GetPrivateProfileInt("output", "frame_delimiter", 10, configPath);
     p->ascii_range = GetPrivateProfileInt("output", "ascii_max_range", 1000, configPath);
     p->bit_format = GetPrivateProfileInt("output", "bit_format", 16, configPath);
@@ -897,6 +1042,8 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     sprintf(p->fragment_shader, "%s/shaders/%s", cava_config_home, fragmentShader);
 
     bool result = validate_config(p, error);
+
+    free(cava_config_home);
 
     return result;
 }

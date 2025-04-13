@@ -8,12 +8,13 @@
 
 #include <math.h>
 
-#ifdef _MSC_VER
+#ifdef _WIN32
 #include <windows.h>
 #define PATH_MAX 260
 #define PACKAGE "cava"
+#define VERSION "0.10.4"
 #define _CRT_SECURE_NO_WARNINGS 1
-#endif // _MSC_VER
+#endif // _WIN32
 
 #include <signal.h>
 
@@ -27,6 +28,33 @@
 #define GCC_UNUSED __attribute__((unused))
 #else
 #define GCC_UNUSED /* nothing */
+#endif
+
+#ifdef _WIN32
+char *optarg = NULL;
+int optind = 1;
+
+static int getopt(int argc, char *const argv[], const char *optstring) {
+    if ((optind >= argc) || (argv[optind][0] != '-') || (argv[optind][0] == 0)) {
+        return -1;
+    }
+
+    int opt = argv[optind][1];
+    const char *p = strchr(optstring, opt);
+
+    if (p == NULL) {
+        return '?';
+    }
+    if (p[1] == ':') {
+        optind++;
+        if (optind >= argc) {
+            return '?';
+        }
+        optarg = argv[optind];
+        optind++;
+    }
+    return opt;
+}
 #endif
 
 // used by sig handler
@@ -44,8 +72,12 @@ int should_quit = 0;
 struct config_params p;
 
 // general: handle signals
+#ifdef _WIN32
+int sig_handler(DWORD sig_no) {
+#else
 void sig_handler(int sig_no) {
-#ifndef _MSC_VER
+#endif
+#ifndef _WIN32
 
     if (sig_no == SIGUSR1) {
         should_reload = 1;
@@ -60,26 +92,36 @@ void sig_handler(int sig_no) {
 
     cleanup(output_mode);
 
+#ifdef _WIN32
+    if (sig_no == CTRL_C_EVENT || sig_no == CTRL_CLOSE_EVENT) {
+        sig_no = SIGINT;
+    } else {
+        return TRUE;
+    }
+#endif
     if (sig_no == SIGINT) {
         printf("CTRL-C pressed -- goodbye\n");
     }
 
     signal(sig_no, SIG_DFL);
     raise(sig_no);
+#ifdef _WIN32
+    return TRUE;
+#endif
 }
 
 // general: entry point
 int main(int argc, char **argv) {
 
-#ifndef _MSC_VER
+#ifndef _WIN32
     // general: console title
     printf("%c]0;%s%c", '\033', PACKAGE, '\007');
-#endif // !_MSC_VER
+#endif // !_WIN32
 
     // general: handle command-line arguments
     char configPath[PATH_MAX];
     configPath[0] = '\0';
-#ifdef _MSC_VER
+#ifdef _WIN32
     if (!SetConsoleCtrlHandler(sig_handler, TRUE)) {
         fprintf(stderr, "ERROR: Could not set control handler");
         exit(EXIT_FAILURE);
@@ -114,12 +156,10 @@ Keys:\n\
         q         Quit\n\
 \n\
 as of 0.4.0 all options are specified in config file, see in '/home/username/.config/cava/' \n";
-#ifndef _MSC_VER
-
     int c;
     while ((c = getopt(argc, argv, "p:vh")) != -1) {
         switch (c) {
-        case 'p': // argument: fifo path
+        case 'p': // argument: config path
             snprintf(configPath, sizeof(configPath), "%s", optarg);
             break;
         case 'h': // argument: print usage
@@ -135,10 +175,6 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             abort();
         }
     }
-#else
-    if (argc > 1)
-        snprintf(configPath, sizeof(configPath), "%s", argv[1]);
-#endif
 
     // general: main loop
     while (1) {
@@ -155,7 +191,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
         p.inAtty = 0;
 
         output_mode = p.output;
-#ifndef _MSC_VER
+#ifndef _WIN32
         if (output_mode == OUTPUT_NCURSES || output_mode == OUTPUT_NONCURSES) {
             // Check if we're running in a tty
             if (strncmp(ttyname(0), "/dev/tty", 8) == 0 || strcmp(ttyname(0), "/dev/console") == 0)
@@ -251,7 +287,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
         timeout_counter = 0;
         while (true) {
-#ifdef _MSC_VER
+#ifdef _WIN32
             Sleep(1);
 #else
             nanosleep(&timeout_timer, NULL);
@@ -262,7 +298,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
             pthread_mutex_unlock(&audio.lock);
             timeout_counter++;
-            if (timeout_counter > 2000) {
+            if (timeout_counter > 5000) {
                 cleanup(output_mode);
                 fprintf(stderr, "could not get rate and/or format, problems with audio thread? "
                                 "quitting...\n");
@@ -287,12 +323,12 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 framerate_timer.tv_sec = 0;
                 framerate_timer.tv_nsec = frame_time_msec * 1e6;
             }
-#ifdef _MSC_VER
+#ifdef _WIN32
             LARGE_INTEGER frequency; // ticks per second
             LARGE_INTEGER t1, t2;    // ticks
             double elapsedTime;
             QueryPerformanceFrequency(&frequency);
-#endif // _MSC_VER
+#endif // _WIN32
 
             int sleep_counter = 0;
             bool silence = false;
@@ -310,7 +346,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     ch = getch();
 #endif
 
-#ifndef _MSC_VER
+#ifndef _WIN32
                 if (output_mode == OUTPUT_NONCURSES)
                     read(0, &ch, sizeof(ch));
 #endif
@@ -380,7 +416,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
 #ifndef NDEBUG
                 // clear();
-#ifndef _MSC_VER
+#ifndef _WIN32
                 refresh();
 #endif
 #endif
@@ -394,7 +430,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                         break;
                     }
                 }
-#ifndef _MSC_VER
+#ifndef _WIN32
 
                 if (output_mode != OUTPUT_SDL) {
                     if (p.sleep_timer) {
@@ -413,7 +449,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     }
                 }
 
-#endif // !_MSC_VER
+#endif // !_WIN32
 
                 // process: execute cava
                 pthread_mutex_lock(&audio.lock);
@@ -438,12 +474,15 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     audio.samples_counter = 0;
                 }
                 pthread_mutex_unlock(&audio.lock);
-
+#ifndef SDL_GLSL
+                // Do transformation under raw data
+                audio_raw_fetch(&audio_raw, &p, plan);
+#else
                 int re_paint = 0;
 
                 // Do transformation under raw data
                 audio_raw_fetch(&audio_raw, &p, &re_paint, plan);
-
+#endif
 // output: draw processed input
 #ifdef NDEBUG
                 if (p.sync_updates) {
@@ -452,9 +491,10 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     printf("\033[2026l\033\\");
                 }
                 int rc;
-#ifdef _MSC_VER
-                (void)audio_raw.x_axis_info;
-
+#ifndef _WIN32
+                (void)p.x_axis_info;
+#endif // !_WIN32
+#ifdef _WIN32
                 QueryPerformanceCounter(&t1);
 #endif
                 switch (output_mode) {
@@ -470,7 +510,8 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 #ifdef SDL_GLSL
                 case OUTPUT_SDL_GLSL:
                     rc = draw_sdl_glsl(audio_raw.number_of_bars, audio_raw.bars_raw,
-                                       frame_time_msec, re_paint, p.continuous_rendering);
+                                       audio_raw.previous_bars_raw, frame_time_msec, re_paint,
+                                       p.continuous_rendering);
                     break;
 #endif
                 case OUTPUT_NONCURSES:
@@ -478,16 +519,19 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                         rc = draw_terminal_noncurses(
                             p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
                             p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.x_axis_info, ORIENT_BOTTOM, 1);
+                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
+                            p.x_axis_info, ORIENT_BOTTOM, 1);
                         rc = draw_terminal_noncurses(
                             p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
                             p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.x_axis_info, ORIENT_TOP, 1);
+                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
+                            p.x_axis_info, ORIENT_TOP, 1);
                     } else {
                         rc = draw_terminal_noncurses(
                             p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
                             p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.x_axis_info, p.orientation, 0);
+                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
+                            p.x_axis_info, p.orientation, 0);
                     }
                     break;
                 case OUTPUT_NCURSES:
@@ -499,17 +543,25 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                                                p.x_axis_info, p.orientation);
                     break;
 #endif
-#ifndef _MSC_VER
                 case OUTPUT_RAW:
+#ifndef _WIN32
                     rc = print_raw_out(audio_raw.number_of_bars, p.fp, p.raw_format, p.bit_format,
                                        p.ascii_range, p.bar_delim, p.frame_delim, audio_raw.bars);
+#else
+                    rc =
+                        print_raw_out(audio_raw.number_of_bars, p.hFile, p.raw_format, p.bit_format,
+                                      p.ascii_range, p.bar_delim, p.frame_delim, audio_raw.bars);
+#endif
                     break;
                 case OUTPUT_NORITAKE:
+#ifndef _WIN32
                     rc = print_ntk_out(audio_raw.number_of_bars, p.fp, p.bit_format, p.bar_width,
                                        p.bar_spacing, p.bar_height, audio_raw.bars);
+#else
+                    rc = print_ntk_out(audio_raw.number_of_bars, p.hFile, p.bit_format, p.bar_width,
+                                       p.bar_spacing, p.bar_height, audio_raw.bars);
+#endif
                     break;
-
-#endif // !_MSC_VER
                 default:
                     exit(EXIT_FAILURE); // Can't happen.
                 }
@@ -533,6 +585,10 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
                 memcpy(audio_raw.previous_frame, audio_raw.bars,
                        audio_raw.number_of_bars * sizeof(int));
+                if (p.output == OUTPUT_SDL_GLSL) {
+                    memcpy(audio_raw.previous_bars_raw, audio_raw.bars_raw,
+                           audio_raw.number_of_bars * sizeof(float));
+                }
 
                 // checking if audio thread has exited unexpectedly
                 pthread_mutex_lock(&audio.lock);
@@ -542,7 +598,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     exit(EXIT_FAILURE);
                 }
                 pthread_mutex_unlock(&audio.lock);
-#ifdef _MSC_VER
+#ifdef _WIN32
                 QueryPerformanceCounter(&t2);
                 elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
                 int fps_sync_time = frame_time_msec;
@@ -554,7 +610,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     fps_sync_time = (frame_time_msec - (int)elapsedTime) / 2;
 #endif
                 if (output_mode != OUTPUT_SDL && output_mode != OUTPUT_SDL_GLSL) {
-#ifdef _MSC_VER
+#ifdef _WIN32
                     Sleep(fps_sync_time);
 #else
                     nanosleep(&framerate_timer, NULL);
@@ -610,5 +666,6 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             }
         }
         // fclose(fp);
+        // CloseHandle(hFile);
     }
 }

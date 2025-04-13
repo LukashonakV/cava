@@ -1,7 +1,7 @@
 project(
     'cava',
     'c',
-    version: '0.10.3',
+    version: '0.10.4',
     license: 'MIT',
     meson_version: '>=0.50.0',
     default_options : [
@@ -120,8 +120,10 @@ endif
 ncursesw_dep = dependency('ncursesw', required: get_option('output_ncurses'))
 if ncursesw_dep.found()
    if cc.has_function('initscr', dependencies: ncursesw_dep)
-      src_files += 'src/output/terminal_ncurses.c'
-      h_O_files += 'include/cava/output/terminal_ncurses.h'
+      src_files += files('src/output/terminal_ncurses.c',
+                         'src/output/terminal_bcircle.c')
+      h_O_files += files('include/cava/output/terminal_ncurses.h',
+                         'include/cava/output/terminal_bcircle.h')
       deps += ncursesw_dep
       add_project_arguments('-DNCURSES', language: 'c')
    else
