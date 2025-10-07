@@ -8,7 +8,7 @@ CAVA [![Build Status](https://github.com/karlstav/cava/workflows/build-and-test/
 
 by [Karl Stavestrand](mailto:karl@stavestrand.no)
 
-<a href='https://play.google.com/store/apps/details?id=com.karlstav.cava&pcampaignid=pcampaignidMKT-Other-global-all-co-prtnr-py-PartBadge-Mar2515-1'><img alt='Get it on Google Play' src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png' width="200"/></a>
+Now also supports [dumb terminals](https://github.com/karlstav/cava/blob/master/TERMINAL.md)!
 
 ![spectrum](https://github.com/karlstav/cava/blob/master/example_files/cava.gif "spectrum")
 
@@ -548,6 +548,14 @@ Install [Background Music](https://github.com/kyleneideck/BackgroundMusic) which
 source = "Background Music"
 ```
 
+**BlackHole**
+
+Install [BlackHole](https://github.com/ExistentialAudio/BlackHole) and create a [Multi Output Device](https://github.com/ExistentialAudio/BlackHole/wiki/Multi-Output-Device), making sure you have your speaker as the first output device in the list, and BlackHole as second (check the ⚠️ note under [4. Select Output Devices](https://github.com/ExistentialAudio/BlackHole/wiki/Multi-Output-Device#4-select-output-devices) on the linked wiki page). Once installed and running just edit your [config](#configuration) to use this interface with portaudio (changing `2ch` to `16ch` or `64ch` if you're using those):
+
+```
+source = "BlackHole 2ch"
+```
+
 **Sound Flower**
 
 [Soundflower](https://github.com/mattingalls/Soundflower) also works to create a loopback interface. Use Audio MIDI Setup to configure a virtual interface that outputs audio to both your speakers and the loopback interface, following [this](https://github.com/RogueAmoeba/Soundflower-Original/issues/44#issuecomment-151586106) recipe. By creating a multi-output device you lose the ability to control the volume on your keyboard. Because of this, we recommend the Background Music app which still gives you keyboard controls.
@@ -705,6 +713,8 @@ You can also use Cava's output for other programs by using raw output mode, whic
 
 A useful starting point example script written in python that consumes raw data can be found [here](https://github.com/karlstav/cava/issues/123#issuecomment-307891020).
 
+### [cava2sse](https://codeberg.org/dnalor/cava2sse)
+is a stand-alone component for making Cava's raw values available as [server-sent events](https://en.wikipedia.org/wiki/Server-sent_events). With this, any application can use CAVA's output data over the network.
 
 Contribution
 ------

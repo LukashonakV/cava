@@ -46,7 +46,7 @@ struct audio_raw {
 };
 
 int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct config_params *prm,
-                   struct cava_plan *plan);
+                   struct cava_plan **plan);
 #ifndef SDL_GLSL
 int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, struct cava_plan *plan);
 #else
