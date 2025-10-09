@@ -21,12 +21,16 @@ EXTRA_DIST = \
     output/shaders/northern_lights.frag \
     output/shaders/winamp_line_style_spectrum.frag \
     output/shaders/spectrogram.frag \
+    output/shaders/eye_of_phi.frag \
+    output/themes/solarized_dark \
+    output/themes/tricolor \
     example_files/config \
     cava.psf \
     LICENSE \
     run_all_tests.sh \
     SHADERS.md \
-    .clang-format
+    .clang-format \
+    CMakeLists.txt
 
 if OSX
     cava_CFLAGS += -DNORT

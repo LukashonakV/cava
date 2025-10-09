@@ -79,6 +79,7 @@ void reset_output_buffers(struct audio_data *data) {
     for (uint16_t n = 0; n < audio->cava_buffer_size; n++) {
         audio->cava_in[n] = 0;
     }
+    audio->samples_counter = audio->cava_buffer_size;
     pthread_mutex_unlock(&audio->lock);
 }
 
@@ -186,6 +187,10 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
     case INPUT_PIPEWIRE:
         audio->format = prm->samplebits;
         audio->rate = prm->samplerate;
+        audio->channels = prm->channels;
+        audio->active = prm->active;
+        audio->remix = prm->remix;
+        audio->virtual_ = prm->virtual_;
         ret = &input_pipewire;
         break;
 #endif

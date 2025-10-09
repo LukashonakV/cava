@@ -108,10 +108,11 @@ enum orientation {
 
 struct config_params {
     char *color, *bcolor, *raw_target, *audio_source, **gradient_colors,
-        **horizontal_gradient_colors, *data_format, *vertex_shader, *fragment_shader;
+        **horizontal_gradient_colors, *data_format, *vertex_shader, *fragment_shader, *theme;
 
     char bar_delim, frame_delim;
-    double monstercat, integral, gravity, ignore, sens, noise_reduction;
+    double monstercat, integral, gravity, ignore, sens, noise_reduction, max_height;
+
     unsigned int lower_cut_off, upper_cut_off;
     double *userEQ;
     enum input_method input;
@@ -123,10 +124,10 @@ struct config_params {
     int userEQ_keys, userEQ_enabled, col, bgcol, autobars, stereo, raw_format, ascii_range,
         bit_format, gradient, gradient_count, horizontal_gradient, horizontal_gradient_count,
         fixedbars, framerate, bar_width, bar_spacing, bar_height, autosens, overshoot, waves,
-        samplerate, samplebits, channels, autoconnect, sleep_timer, sdl_width, sdl_height, sdl_x,
-        sdl_y, sdl_full_screen, draw_and_quit, zero_test, non_zero_test, reverse, sync_updates,
-        continuous_rendering, disable_blanking, show_idle_bar_heads, waveform, inAtty, fp,
-        x_axis_info;
+        active, remix, virtual_, samplerate, samplebits, channels, autoconnect, sleep_timer,
+        sdl_width, sdl_height, sdl_x, sdl_y, sdl_full_screen, draw_and_quit, zero_test,
+        non_zero_test, reverse, sync_updates, continuous_rendering, disable_blanking,
+        show_idle_bar_heads, waveform, center_align, inAtty, inAterminal, fp, x_axis_info;
 #ifdef _WIN32
     HANDLE hFile;
 #endif
@@ -137,5 +138,6 @@ struct error_s {
     int length;
 };
 bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colorsOnly,
-                 struct error_s *error);
+                 struct error_s *error, int reload);
+
 enum input_method input_method_by_name(const char *str);
