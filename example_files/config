@@ -36,6 +36,12 @@
 ; bar_width = 1
 ; bar_spacing = 0
 
+# ceter bars in terminal, if there is space.
+; center_align = 1
+
+# max height of bars in terminal, in percent of terminal height.
+; max_height = 100
+
 
 # Lower and higher cutoff frequencies for lowest and highest bars
 # the bandwidth of the visualizer.
@@ -64,7 +70,7 @@
 # (all pulseaudio sinks(outputs) have 'monitor' sources(inputs) associated with them).
 #
 # For pipewire 'source' will be the object name or object.serial of the device to capture from.
-# Both input and output devices are supported.
+# Both input and output devices are supported. To capture the monitor source of a sink node, append '.monitor' to the sink's object name.
 #
 # For alsa 'source' will be the capture device.
 # For fifo 'source' will be the path to fifo-file.
@@ -112,16 +118,26 @@
 #   channels:    sndio, oss, jack
 #   autoconnect: jack
 # Other methods ignore these settings.
+# For pipewire, sample_rate will default to 48000, for all other input methods, sample_rate will default to 44100.
 #
 # For 'sndio' and 'oss' they are only preferred values, i.e. if the values are not supported
 # by the chosen audio device, the device will use other supported values instead.
 # Example: 48000, 32 and 2, but the device only supports 44100, 16 and 1, then it
 # will use 44100, 16 and 1.
 #
+#
+# The 'pipewire' input method has three options to control linking and mixing:
+#   active: Force the node to always process. Useful for monitoring sources when no other application is active.
+#   remix: Allow pipewire to remix audio channels to match cava's channel count. Useful for surround sound.
+#   virtual: Set the node to virtual, to avoid recording notifications from the DE.
+#
 ; sample_rate = 44100
 ; sample_bits = 16
 ; channels = 2
 ; autoconnect = 2
+; active = 0
+; remix = 1
+; virtual = 1
 
 
 [output]
@@ -134,7 +150,7 @@
 #
 # 'raw' is an 8 or 16 bit (configurable via the 'bit_format' option) data
 # stream of the bar heights that can be used to send to other applications.
-# 'raw' defaults to 200 bars, which can be adjusted in the 'bars' option above.
+# 'raw' defaults to 1024 bars stereo (512 bars mono), which can be adjusted in the 'bars' option above.
 #
 # 'noritake' outputs a bitmap in the format expected by a Noritake VFD display
 #  in graphic mode. It only support the 3000 series graphical VFDs for now.
@@ -181,8 +197,8 @@
 ; frame_delimiter = 10
 
 # sdl window size and position. -1,-1 is centered.
-; sdl_width = 1000
-; sdl_height = 500
+; sdl_width = 1024
+; sdl_height = 512
 ; sdl_x = -1
 ; sdl_y= -1
 ; sdl_full_screen = 0
@@ -260,6 +276,10 @@
 # bottom to top. I.e. the bottom will be only the horizontal
 # and top will be only the color of the vertical gradient.
 ; blend_direction = 'up'
+
+# use theme file instead of defining colors in this file
+# themes are located in $HOME/.config/cava/themes
+; theme = 'none'
 
 
 [smoothing]
