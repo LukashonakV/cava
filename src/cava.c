@@ -12,7 +12,7 @@
 #include <windows.h>
 #define PATH_MAX 260
 #define PACKAGE "cava"
-#define VERSION "0.10.4"
+#define VERSION "0.10.6"
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif // _WIN32
 
@@ -58,14 +58,13 @@ static int getopt(int argc, char *const argv[], const char *optstring) {
 #endif
 
 // used by sig handler
-// needs to know output mode in order to clean up terminal
-int output_mode;
 // whether we should reload the config or not
 int should_reload = 0;
 // whether we should only reload colors or not
 int reload_colors = 0;
 // whether we should quit
 int should_quit = 0;
+int signal_received = 0;
 
 // these variables are used only in main, but making them global
 // will allow us to not free them on exit without ASan complaining
@@ -90,8 +89,6 @@ void sig_handler(int sig_no) {
     }
 #endif
 
-    cleanup(output_mode);
-
 #ifdef _WIN32
     if (sig_no == CTRL_C_EVENT || sig_no == CTRL_CLOSE_EVENT) {
         sig_no = SIGINT;
@@ -99,12 +96,13 @@ void sig_handler(int sig_no) {
         return TRUE;
     }
 #endif
-    if (sig_no == SIGINT) {
-        printf("CTRL-C pressed -- goodbye\n");
+    if (sig_no == SIGINT || sig_no == SIGTERM) {
+        should_reload = 1;
+        should_quit = 1;
     }
 
-    signal(sig_no, SIG_DFL);
-    raise(sig_no);
+    signal_received = sig_no;
+
 #ifdef _WIN32
     return TRUE;
 #endif
@@ -153,9 +151,9 @@ Keys:\n\
         c         Reload colors only\n\
         f         Cycle foreground color\n\
         b         Cycle background color\n\
+        o         Change orientation bottom -> right -> top -> left (ncurses), top <-> bottom (other modes)\n\
         q         Quit\n\
-\n\
-as of 0.4.0 all options are specified in config file, see in '/home/username/.config/cava/' \n";
++\n";
     int c;
     while ((c = getopt(argc, argv, "p:vh")) != -1) {
         switch (c) {
@@ -175,6 +173,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             abort();
         }
     }
+    int reload = 0;
 
     // general: main loop
     while (1) {
@@ -183,50 +182,73 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
         // config: load
         struct error_s error;
         error.length = 0;
-        if (!load_config(configPath, &p, 0, &error)) {
+        if (!load_config(configPath, &p, 0, &error, reload)) {
             fprintf(stderr, "Error loading config. %s", error.message);
             exit(EXIT_FAILURE);
         }
 
         p.inAtty = 0;
+        p.inAterminal = 0;
 
-        output_mode = p.output;
 #ifndef _WIN32
-        if (output_mode == OUTPUT_NCURSES || output_mode == OUTPUT_NONCURSES) {
+        if ((p.output == OUTPUT_NCURSES || p.output == OUTPUT_NONCURSES) && ttyname(0) != NULL) {
             // Check if we're running in a tty
-            if (strncmp(ttyname(0), "/dev/tty", 8) == 0 || strcmp(ttyname(0), "/dev/console") == 0)
+            if (strncmp(ttyname(0), "/dev/tty", 8) == 0 ||
+                strcmp(ttyname(0), "/dev/console") == 0 ||
+                strncmp(ttyname(0), "/dev/ttyS", 9) == 0 ||
+                strncmp(ttyname(0), "/dev/ttyUSB", 11) == 0)
                 p.inAtty = 1;
+
+            // Check if we are running in a dumb terminal
+            if (strncmp(ttyname(0), "/dev/ttyS", 9) == 0 ||
+                strncmp(ttyname(0), "/dev/ttyUSB", 11) == 0)
+                p.inAterminal = 1;
 
             // in macos vitual terminals are called ttys(xyz) and there are no ttys
             if (strncmp(ttyname(0), "/dev/ttys", 9) == 0)
                 p.inAtty = 0;
             if (p.inAtty) {
-#ifdef CAVAFONT
-                // checking if cava psf font is installed in FONTDIR
-                FILE *font_file;
-                font_file = fopen(FONTDIR "/" FONTFILE, "r");
-                if (font_file) {
-                    fclose(font_file);
-#ifdef __FreeBSD__
-                    system("vidcontrol -f " FONTDIR "/" FONTFILE " >/dev/null 2>&1");
-#else
-                    system("setfont " FONTDIR "/" FONTFILE " >/dev/null 2>&1");
-#endif
+                if (p.inAterminal) {
+                    printf("\033P 1;32;1;0;0;2 { sp @ "
+                           "\?\?\?\?\?\?\?\?/GGGGGGGG;"
+                           "\?\?\?\?\?\?\?\?/GGGGGGGG;"
+                           "\?\?\?\?\?\?\?\?/KKKKKKKK;"
+                           "\?\?\?\?\?\?\?\?/MMMMMMMM;"
+                           "\?\?\?\?\?\?\?\?/NNNNNNNN;"
+                           "oooooooo/NNNNNNNN;"
+                           "wwwwwwww/NNNNNNNN;"
+                           "}}}}}}}}/NNNNNNNN;"
+                           "~~~~~~~~/NNNNNNNN");
+
+                    printf("\033( sp @ ");
                 } else {
-                    // if not it might still be available, we dont know, must try
+#ifdef CAVAFONT
+                    // checking if cava psf font is installed in FONTDIR
+                    FILE *font_file;
+                    font_file = fopen(FONTDIR "/" FONTFILE, "r");
+                    if (font_file) {
+                        fclose(font_file);
 #ifdef __FreeBSD__
-                    system("vidcontrol -f " FONTFILE " >/dev/null 2>&1");
+                        system("vidcontrol -f " FONTDIR "/" FONTFILE " >/dev/null 2>&1");
 #else
-                    system("setfont " FONTFILE " >/dev/null 2>&1");
+                        system("setfont " FONTDIR "/" FONTFILE " >/dev/null 2>&1");
 #endif
-                }
+                    } else {
+                        // if not it might still be available, we dont know, must try
+#ifdef __FreeBSD__
+                        system("vidcontrol -f " FONTFILE " >/dev/null 2>&1");
+#else
+                        system("setfont " FONTFILE " >/dev/null 2>&1");
+#endif
+                    }
 #endif // CAVAFONT
 #ifndef __FreeBSD__
-                if (p.disable_blanking)
-                    system("setterm -blank 0");
+                    if (p.disable_blanking)
+                        system("setterm -blank 0");
 #endif
+                }
                 if (p.orientation != ORIENT_BOTTOM) {
-                    cleanup(output_mode);
+                    cleanup(p.output);
                     fprintf(stderr, "only default bottom orientation is supported in tty\n");
                     exit(EXIT_FAILURE);
                 }
@@ -250,12 +272,9 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
         // input: init
         struct audio_data audio;
         struct audio_raw audio_raw;
-        struct cava_plan *plan = (struct cava_plan *)malloc(sizeof(struct cava_plan));
+        struct cava_plan *plan = NULL;
         memset(&audio, 0, sizeof(audio));
         memset(&audio_raw, 0, sizeof(audio_raw));
-
-        audio.source = malloc(1 + strlen(p.audio_source));
-        strcpy(audio.source, p.audio_source);
 
         audio.format = -1;
         audio.rate = 0;
@@ -265,10 +284,8 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
         audio.autoconnect = 0;
 
         audio.input_buffer_size = BUFFER_SIZE * audio.channels;
-        audio.cava_buffer_size = audio.input_buffer_size * 8;
-
-        audio.cava_in = (double *)malloc(audio.cava_buffer_size * sizeof(double));
-        memset(audio.cava_in, 0, sizeof(int) * audio.cava_buffer_size);
+        audio.cava_buffer_size = 16384; // this is the size at rates of 44100 or 48k, will be
+                                        // adjusted later if sample rate is unusual
 
         audio.terminate = 0;
 
@@ -299,7 +316,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             pthread_mutex_unlock(&audio.lock);
             timeout_counter++;
             if (timeout_counter > 5000) {
-                cleanup(output_mode);
+                cleanup(p.output);
                 fprintf(stderr, "could not get rate and/or format, problems with audio thread? "
                                 "quitting...\n");
                 exit(EXIT_FAILURE);
@@ -308,10 +325,27 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
         pthread_mutex_unlock(&audio.lock);
         debug("got format: %d and rate %d\n", audio.format, audio.rate);
 
+#ifdef SDL
+        // output: start sdl mode
+        if (p.output == OUTPUT_SDL) {
+            init_sdl_window(p.sdl_width, p.sdl_height, p.sdl_x, p.sdl_y, p.sdl_full_screen);
+            audio_raw.height = p.sdl_height;
+            audio_raw.width = p.sdl_width;
+        }
+#endif
+#ifdef SDL_GLSL
+        if (p.output == OUTPUT_SDL_GLSL) {
+            init_sdl_glsl_window(p.sdl_width, p.sdl_height, p.sdl_x, p.sdl_y, p.sdl_full_screen,
+                                 p.vertex_shader, p.fragment_shader);
+            audio_raw.height = p.sdl_height;
+            audio_raw.width = p.sdl_width;
+        }
+#endif
+
         bool reloadConf = false;
         while (!reloadConf) { // jumping back to this loop means that you resized the screen
             // Initialize audio raw data structures
-            audio_raw_init(&audio, &audio_raw, &p, plan);
+            audio_raw_init(&audio, &audio_raw, &p, &plan);
 
             bool resizeTerminal = false;
 
@@ -342,12 +376,12 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
 // general: keyboard controls
 #ifdef NCURSES
-                if (output_mode == OUTPUT_NCURSES)
+                if (p.output == OUTPUT_NCURSES)
                     ch = getch();
 #endif
 
 #ifndef _WIN32
-                if (output_mode == OUTPUT_NONCURSES)
+                if (p.output == OUTPUT_NONCURSES)
                     read(0, &ch, sizeof(ch));
 #endif
 
@@ -387,6 +421,32 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                         p.bgcol = 0;
                     resizeTerminal = true;
                     break;
+                case 'o': // change orientation
+                    if (p.output == OUTPUT_NCURSES) {
+                        if (p.orientation == ORIENT_BOTTOM) {
+                            p.orientation = ORIENT_RIGHT;
+                        } else if (p.orientation == ORIENT_RIGHT) {
+                            p.orientation = ORIENT_TOP;
+                        } else if (p.orientation == ORIENT_TOP) {
+                            p.orientation = ORIENT_LEFT;
+                        } else {
+                            p.orientation = ORIENT_BOTTOM;
+                        }
+
+                        if (p.orientation == ORIENT_LEFT || p.orientation == ORIENT_RIGHT) {
+                            audio_raw.dimension_bar = &audio_raw.height;
+                            audio_raw.dimension_value = &audio_raw.width;
+                        } else {
+                            audio_raw.dimension_bar = &audio_raw.width;
+                            audio_raw.dimension_value = &audio_raw.height;
+                        }
+                    } else {
+                        p.orientation =
+                            (p.orientation == ORIENT_BOTTOM) ? ORIENT_TOP : ORIENT_BOTTOM;
+                    }
+
+                    resizeTerminal = true;
+                    break;
 
                 case 'q':
                     should_reload = 1;
@@ -405,8 +465,8 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 if (reload_colors) {
                     struct error_s error;
                     error.length = 0;
-                    if (!load_config(configPath, (void *)&p, 1, &error)) {
-                        cleanup(output_mode);
+                    if (!load_config(configPath, (void *)&p, 1, &error, reload)) {
+                        cleanup(p.output);
                         fprintf(stderr, "Error loading config. %s", error.message);
                         exit(EXIT_FAILURE);
                     }
@@ -432,7 +492,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 }
 #ifndef _WIN32
 
-                if (output_mode != OUTPUT_SDL) {
+                if (p.output != OUTPUT_SDL) {
                     if (p.sleep_timer) {
                         if (silence && sleep_counter <= p.framerate * p.sleep_timer)
                             sleep_counter++;
@@ -497,7 +557,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 #ifdef _WIN32
                 QueryPerformanceCounter(&t1);
 #endif
-                switch (output_mode) {
+                switch (p.output) {
 #ifdef SDL
                 case OUTPUT_SDL:
                     rc = draw_sdl(audio_raw.number_of_bars, p.bar_width, p.bar_spacing,
@@ -593,7 +653,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 // checking if audio thread has exited unexpectedly
                 pthread_mutex_lock(&audio.lock);
                 if (audio.terminate == 1) {
-                    cleanup(output_mode);
+                    cleanup(p.output);
                     fprintf(stderr, "Audio thread exited unexpectedly. %s\n", audio.error_message);
                     exit(EXIT_FAILURE);
                 }
@@ -609,7 +669,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                 else
                     fps_sync_time = (frame_time_msec - (int)elapsedTime) / 2;
 #endif
-                if (output_mode != OUTPUT_SDL && output_mode != OUTPUT_SDL_GLSL) {
+                if (p.output != OUTPUT_SDL && p.output != OUTPUT_SDL_GLSL) {
 #ifdef _WIN32
                     Sleep(fps_sync_time);
 #else
@@ -621,7 +681,7 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
                     total_frames++;
                     if (total_frames >= p.draw_and_quit) {
                         for (int n = 0; n < audio_raw.number_of_bars; n++) {
-                            if (output_mode != OUTPUT_RAW && output_mode != OUTPUT_NORITAKE &&
+                            if (p.output != OUTPUT_RAW && p.output != OUTPUT_NORITAKE &&
                                 audio_raw.bars[n] == 1) {
                                 audio_raw.bars[n] = 0;
                             }
@@ -650,9 +710,10 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
 
         free(audio.source);
         free(audio.cava_in);
-        cleanup(output_mode);
+        cleanup(p.output);
+        reload = 1;
 
-        if (should_quit) {
+        if (should_quit && signal_received == 0) {
             if (p.zero_test && total_bar_height > 0) {
                 fprintf(stderr, "Test mode: expected total bar height to be zero, but was: %d\n",
                         total_bar_height);
@@ -664,6 +725,10 @@ as of 0.4.0 all options are specified in config file, see in '/home/username/.co
             } else {
                 return EXIT_SUCCESS;
             }
+        }
+        if (signal_received != 0) {
+            signal(signal_received, SIG_DFL);
+            raise(signal_received);
         }
         // fclose(fp);
         // CloseHandle(hFile);
