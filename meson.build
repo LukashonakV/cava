@@ -1,7 +1,7 @@
 project(
     'cava',
     'c',
-    version: '0.10.4',
+    version: '0.10.6',
     license: 'MIT',
     meson_version: '>=0.50.0',
     default_options : [

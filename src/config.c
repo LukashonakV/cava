@@ -26,6 +26,8 @@
 
 #define NUMBER_OF_SHADERS 6
 
+#define NUMBER_OF_THEMES 2
+
 #ifdef _WIN32
 #include "Shlwapi.h"
 #define TEXTFILE 256
@@ -36,6 +38,10 @@
 #define IDR_SPECTROGRAM_SHADER 105
 #define IDR_WINAMP_LINE_STYLE_SPECTRUM_SHADER 106
 #define IDR_EYE_OF_PHI_SHADER 107
+
+#define IDR_SOLARIZED_DARK_THEME 501
+#define IDR_TRICOLOR_THEME 502
+
 #define PATH_MAX 260
 #define PACKAGE "cava"
 #define _CRT_SECURE_NO_WARNINGS 1
@@ -56,6 +62,8 @@ int default_shader_data[NUMBER_OF_SHADERS] = {
     IDR_NORTHERN_LIGHTS_SHADER, IDR_PASS_THROUGH_SHADER,
     IDR_BAR_SPECTRUM_SHADER,    IDR_WINAMP_LINE_STYLE_SPECTRUM_SHADER,
     IDR_SPECTROGRAM_SHADER,     IDR_EYE_OF_PHI_SHADER};
+
+int default_theme_data[NUMBER_OF_THEMES] = {IDR_SOLARIZED_DARK_THEME, IDR_TRICOLOR_THEME};
 #else
 #define INCBIN_SILENCE_BITCODE_WARNING
 #include "third_party/incbin.h"
@@ -71,16 +79,23 @@ INCTXT(eye_of_phi, "src/output/shaders/eye_of_phi.frag");
 
 INCTXT(pass_throughvert, "src/output/shaders/pass_through.vert");
 
+INCTXT(solarized_dark, "src/output/themes/solarized_dark");
+INCTXT(tricolor, "src/output/themes/tricolor");
+
 // INCTXT will create a char g<name>Data
 const char *default_shader_data[NUMBER_OF_SHADERS] = {
     gnorthern_lightsfragData,        gpass_throughvertData, gbar_spectrumData,
     gwinamp_line_style_spectrumData, gspectrogramData,      geye_of_phiData};
+
+const char *default_theme_data[NUMBER_OF_THEMES] = {gsolarized_darkData, gtricolorData};
 #endif // _WIN32
+
 // name of the installed shader file, technically does not have to be the same as in the source
 const char *default_shader_name[NUMBER_OF_SHADERS] = {
     "northern_lights.frag", "pass_through.vert",
     "bar_spectrum.frag",    "winamp_line_style_spectrum.frag",
     "spectrogram.frag",     "eye_of_phi.frag"};
+const char *default_theme_name[NUMBER_OF_THEMES] = {"solarized_dark", "tricolor"};
 
 double smoothDef[5] = {1, 1, 1, 1, 1};
 
@@ -496,11 +511,20 @@ bool validate_config(struct config_params *p, struct error_s *error) {
     else
         p->channels = 2;
 
+    if (p->max_height > 1.0) {
+        write_errorf(error, "max_height is defined in percent and can't be more than 100\n");
+        return false;
+    } else if (p->max_height < 0.0) {
+        write_errorf(error, "max_height can't be negative\n");
+        return false;
+    }
+
     return validate_colors(p, error);
 }
 
 bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colorsOnly,
-                 struct error_s *error) {
+                 struct error_s *error, int reload) {
+
 #ifdef _WIN32
     p->hFile = NULL;
 #endif
@@ -650,18 +674,57 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         }
     }
     free(shaderPath);
-    p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
-    for (int i = 0; i < 8; ++i) {
-        p->gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
+
+    // create default theme files if they do not exist
+    char *themePath = malloc(sizeof(char) * PATH_MAX);
+    sprintf(themePath, "%s/themes", cava_config_home);
+#ifndef _WIN32
+    mkdir(themePath, 0777);
+#else
+    CreateDirectoryA(themePath, NULL);
+#endif
+    for (int i = 0; i < NUMBER_OF_THEMES; i++) {
+        char *themeFile = malloc(sizeof(char) * PATH_MAX);
+        sprintf(themeFile, "%s/%s", themePath, default_theme_name[i]);
+
+        fp = fopen(themeFile, "ab+");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            if (ftell(fp) == 0) {
+                printf("theme file is empty, creating default theme file\n");
+#ifndef _WIN32
+                fwrite(default_theme_data[i], strlen(default_theme_data[i]), sizeof(char), fp);
+#else
+                DWORD themeDataSize = 0;
+                const char *themeData = NULL;
+                LoadFileInResource(default_theme_data[i], TEXTFILE, &themeDataSize, &themeData);
+                fwrite(themeData, themeDataSize, sizeof(char), fp);
+#endif
+            }
+            fclose(fp);
+            free(themeFile);
+        }
     }
-    p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
-    for (int i = 0; i < 8; ++i) {
-        p->horizontal_gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
-    }
+    free(themePath);
+
+    free(p->vertex_shader);
+    free(p->fragment_shader);
     p->vertex_shader = malloc(sizeof(char) * PATH_MAX);
     p->fragment_shader = malloc(sizeof(char) * PATH_MAX);
 
+    char *themeFile = malloc(sizeof(char) * PATH_MAX);
+
 #ifndef _WIN32
+    outputMethod = malloc(sizeof(char) * 32);
+    p->audio_source = malloc(sizeof(char) * 129);
+    xaxisScale = malloc(sizeof(char) * 32);
+    channels = malloc(sizeof(char) * 32);
+    monoOption = malloc(sizeof(char) * 32);
+    orientation = malloc(sizeof(char) * 32);
+    blendDirection = malloc(sizeof(char) * 32);
+    vertexShader = malloc(sizeof(char) * PATH_MAX / 2);
+    fragmentShader = malloc(sizeof(char) * PATH_MAX / 2);
+
     // config: parse ini
     dictionary *ini;
     ini = iniparser_load(configPath);
@@ -669,16 +732,33 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     free(p->color);
     free(p->bcolor);
 
+    p->theme = strdup(iniparser_getstring(ini, "color:theme", "none"));
+
+    if (strcmp(p->theme, "none") != 0) {
+        sprintf(themeFile, "%s/themes/%s", cava_config_home, p->theme);
+        fp = fopen(themeFile, "rb");
+        if (fp) {
+            fclose(fp);
+        } else {
+            write_errorf(error, "Unable to open theme file '%s', exiting...\n", themeFile);
+            return false;
+        }
+        iniparser_freedict(ini);
+        ini = iniparser_load(themeFile);
+    }
+
     p->color = strdup(iniparser_getstring(ini, "color:foreground", "default"));
     p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 
     p->gradient = iniparser_getint(ini, "color:gradient", 0);
-    for (int i = 0; i < 8; ++i) {
-        free(p->gradient_colors[i]);
-    }
 
+    if (reload) {
+        for (int i = 0; i < 8; ++i)
+            free(p->gradient_colors[i]);
+    }
     free(p->gradient_colors);
     p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+
     p->gradient_colors[0] = strdup(iniparser_getstring(ini, "color:gradient_color_1", "not_set"));
     p->gradient_colors[1] = strdup(iniparser_getstring(ini, "color:gradient_color_2", "not_set"));
     p->gradient_colors[2] = strdup(iniparser_getstring(ini, "color:gradient_color_3", "not_set"));
@@ -689,11 +769,14 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->gradient_colors[7] = strdup(iniparser_getstring(ini, "color:gradient_color_8", "not_set"));
 
     p->horizontal_gradient = iniparser_getint(ini, "color:horizontal_gradient", 0);
-    for (int i = 0; i < 8; ++i) {
-        free(p->horizontal_gradient_colors[i]);
+
+    if (reload) {
+        for (int i = 0; i < 8; ++i)
+            free(p->horizontal_gradient_colors[i]);
     }
     free(p->horizontal_gradient_colors);
     p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+
     p->horizontal_gradient_colors[0] =
         strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_1", "not_set"));
     p->horizontal_gradient_colors[1] =
@@ -712,20 +795,37 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
         strdup(iniparser_getstring(ini, "color:horizontal_gradient_color_8", "not_set"));
 
 #else
-    outputMethod = malloc(sizeof(char) * 32);
     p->color = malloc(sizeof(char) * 14);
     p->bcolor = malloc(sizeof(char) * 14);
-    p->audio_source = malloc(sizeof(char) * 129);
+    p->theme = malloc(sizeof(char) * 64);
 
-    xaxisScale = malloc(sizeof(char) * 32);
-    channels = malloc(sizeof(char) * 32);
-    monoOption = malloc(sizeof(char) * 32);
     p->raw_target = malloc(sizeof(char) * 129);
     p->data_format = malloc(sizeof(char) * 32);
-    orientation = malloc(sizeof(char) * 32);
-    blendDirection = malloc(sizeof(char) * 32);
-    vertexShader = malloc(sizeof(char) * PATH_MAX / 2);
-    fragmentShader = malloc(sizeof(char) * PATH_MAX / 2);
+
+    p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+    for (int i = 0; i < 8; ++i) {
+        p->gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
+    }
+    p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
+    for (int i = 0; i < 8; ++i) {
+        p->horizontal_gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
+    }
+
+    GetPrivateProfileString("color", "theme", "none", p->theme, 64, configPath);
+
+    char *configFileBak = configPath;
+
+    if (strcmp(p->theme, "none") != 0) {
+        sprintf(themeFile, "%s/themes/%s", cava_config_home, p->theme);
+        fp = fopen(themeFile, "rb");
+        if (fp) {
+            fclose(fp);
+            configPath = themeFile;
+        } else {
+            write_errorf(error, "Unable to open theme file '%s', exiting...\n", themeFile);
+            return false;
+        }
+    }
 
     GetPrivateProfileString("color", "foreground", "default", p->color, 9, configPath);
     GetPrivateProfileString("color", "background", "default", p->bcolor, 9, configPath);
@@ -767,6 +867,10 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     GetPrivateProfileString("color", "horizontal_gradient_color_8", "not_set",
                             p->horizontal_gradient_colors[7], 9, configPath);
 
+    if (strcmp(p->theme, "none") != 0) {
+        configPath = configFileBak;
+    }
+    free(p->theme);
 #endif
     p->gradient_count = 0;
     for (int i = 0; i < 7; ++i) {
@@ -783,13 +887,26 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
             break;
     }
 
+    free(themeFile);
+#ifndef _WIN32
+    if (strcmp(p->theme, "none") != 0) {
+        iniparser_freedict(ini);
+        ini = iniparser_load(configPath);
+    }
+    free(p->theme);
+#endif
+
     if (colorsOnly) {
         return validate_colors(p, error);
     }
+
 #ifndef _WIN32
 
-    outputMethod = strdup(iniparser_getstring(ini, "output:method", "noncurses"));
+    free(orientation);
+    free(xaxisScale);
+    free(outputMethod);
 
+    outputMethod = strdup(iniparser_getstring(ini, "output:method", "noncurses"));
     orientation = strdup(iniparser_getstring(ini, "output:orientation", "bottom"));
     xaxisScale = strdup(iniparser_getstring(ini, "output:xaxis", "none"));
     p->monstercat = iniparser_getdouble(ini, "smoothing:monstercat", 0);
@@ -810,7 +927,9 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->lower_cut_off = iniparser_getint(ini, "general:lower_cutoff_freq", 50);
     p->upper_cut_off = iniparser_getint(ini, "general:higher_cutoff_freq", 10000);
     p->sleep_timer = iniparser_getint(ini, "general:sleep_timer", 0);
-
+    int max_height = iniparser_getint(ini, "general:max_height", 100);
+    p->max_height = max_height / 100.0;
+    p->center_align = iniparser_getint(ini, "general:center_align", 1);
     // hidden test features
 
     // draw this many frames and quit, used for testing
@@ -840,8 +959,8 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->bit_format = iniparser_getint(ini, "output:bit_format", 16);
     blendDirection = strdup(iniparser_getstring(ini, "color:blend_direction", "up"));
 
-    p->sdl_width = iniparser_getint(ini, "output:sdl_width", 1000);
-    p->sdl_height = iniparser_getint(ini, "output:sdl_height", 500);
+    p->sdl_width = iniparser_getint(ini, "output:sdl_width", 1024);
+    p->sdl_height = iniparser_getint(ini, "output:sdl_height", 512);
     p->sdl_x = iniparser_getint(ini, "output:sdl_x", -1);
     p->sdl_y = iniparser_getint(ini, "output:sdl_y", -1);
     p->sdl_full_screen = iniparser_getint(ini, "output:sdl_full_screen", 0);
@@ -890,11 +1009,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
 
     free(p->audio_source);
 
-    p->samplerate = iniparser_getint(ini, "input:sample_rate", 44100);
-    p->samplebits = iniparser_getint(ini, "input:sample_bits", 16);
-    p->channels = iniparser_getint(ini, "input:channels", 2);
-    p->autoconnect = iniparser_getint(ini, "input:autoconnect", 2);
-
     enum input_method default_input = INPUT_FIFO;
     for (size_t i = 0; i < ARRAY_SIZE(default_methods); i++) {
         enum input_method method = default_methods[i];
@@ -905,6 +1019,18 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     char *input_method_name =
         strdup(iniparser_getstring(ini, "input:method", input_method_names[default_input]));
     p->input = input_method_by_name(input_method_name);
+
+    if (p->input == input_method_by_name("pipewire"))
+        p->samplerate = iniparser_getint(ini, "input:sample_rate", 48000);
+    else
+        p->samplerate = iniparser_getint(ini, "input:sample_rate", 44100);
+    p->samplebits = iniparser_getint(ini, "input:sample_bits", 16);
+    p->channels = iniparser_getint(ini, "input:channels", 2);
+    p->autoconnect = iniparser_getint(ini, "input:autoconnect", 2);
+    p->active = iniparser_getint(ini, "input:active", 0);
+    p->remix = iniparser_getint(ini, "input:remix", 1);
+    p->virtual_ = iniparser_getint(ini, "input:virtual", 1);
+
     switch (p->input) {
 #ifdef ALSA
     case INPUT_ALSA:
@@ -975,7 +1101,7 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->waves = GetPrivateProfileInt("smoothing", "waves", 0, configPath);
     p->monstercat = GetPrivateProfileInt("smoothing", "monstercat", 0, configPath);
 
-    p->noise_reduction = GetPrivateProfileInt("smoothing", "noise_reduction", 77, configPath);
+    p->noise_reduction = GetPrivateProfileInt("smoothing", "noise_reduction", 70, configPath);
     GetPrivateProfileString("output", "xaxis", "none", xaxisScale, 16, configPath);
     GetPrivateProfileString("output", "orientation", "bottom", orientation, 16, configPath);
     GetPrivateProfileString("color", "blend_orientation", "up", orientation, 16, configPath);
@@ -993,6 +1119,8 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->lower_cut_off = GetPrivateProfileInt("general", "lower_cutoff_freq", 50, configPath);
     p->upper_cut_off = GetPrivateProfileInt("general", "higher_cutoff_freq", 10000, configPath);
     p->sleep_timer = GetPrivateProfileInt("general", "sleep_timer", 0, configPath);
+    p->max_height = GetPrivateProfileInt("general", "max_height", 100, configPath) / 100.0;
+    p->center_align = GetPrivateProfileInt("general", "center_align", 1, configPath);
 
     GetPrivateProfileString("output", "channels", "stereo", channels, 16, configPath);
     GetPrivateProfileString("output", "mono_option", "average", monoOption, 16, configPath);
@@ -1013,12 +1141,50 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->show_idle_bar_heads = GetPrivateProfileInt("output", "show_idle_bar_heads", 1, configPath);
     p->waveform = GetPrivateProfileInt("output", "waveform", 0, configPath);
 
-    p->userEQ_enabled = 0;
+    // read eq values
+    p->userEQ_keys = 0;
+    p->userEQ = (double *)malloc(sizeof(double));
+    if (p->userEQ == NULL) {
+        write_errorf(error, "Memory allocation failed\n");
+        return false;
+    }
+    while (1) {
+        char eqResult[10];
+        char keyNum[3];
+
+        // pass key counter as string to GetPrivateProfileString
+        sprintf(keyNum, "%d", p->userEQ_keys + 1);
+        GetPrivateProfileString("eq", keyNum, "NOT FOUND", eqResult, sizeof(eqResult), configPath);
+        if (!strcmp(eqResult, "NOT FOUND")) {
+            break;
+        } else {
+            double *oldPtr = p->userEQ;
+            p->userEQ = (double *)realloc(p->userEQ, sizeof(double) * (p->userEQ_keys + 1));
+            if (p->userEQ == NULL) {
+                write_errorf(error, "Memory reallocation failed\n");
+                free(oldPtr);
+                return false;
+            }
+
+            char *endptr;
+            p->userEQ[p->userEQ_keys] = strtod(eqResult, &endptr);
+            if (endptr == eqResult) {
+                write_errorf(error, "Invalid string to double conversion, %d : \"%s\" \n",
+                             p->userEQ_keys + 1, eqResult);
+                free(p->userEQ);
+                return false;
+            }
+            p->userEQ_keys++;
+        }
+    }
+    if (p->userEQ_keys > 0) {
+        p->userEQ_enabled = 1;
+    }
 
     p->input = GetPrivateProfileInt("input", "method", INPUT_WINSCAP, configPath);
     if (p->input != INPUT_WINSCAP) {
-        write_errorf(error, "cava was built without '%s' input support\n",
-                     input_method_names[p->input]);
+        write_errorf(error, "on windows changing input method is not supported, "
+                            "simply leave the input method setting commented out\n");
         return false;
     }
     GetPrivateProfileString("input", "source", "auto", p->audio_source, 64, configPath);
@@ -1042,7 +1208,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     sprintf(p->fragment_shader, "%s/shaders/%s", cava_config_home, fragmentShader);
 
     bool result = validate_config(p, error);
-
     free(cava_config_home);
 
     return result;

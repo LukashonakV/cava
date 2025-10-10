@@ -70,10 +70,8 @@ void *input_alsa(void *data) {
     initialize_audio_parameters(&handle, audio, &frames);
     snd_pcm_get_params(handle, &buffer_size, &period_size);
 
-    unsigned char buf[buffer_size];
+    unsigned char *buf = malloc(buffer_size);
     frames = period_size / ((audio->format / 8) * CHANNELS_COUNT);
-
-    signed char *buffer = malloc(period_size);
 
     while (!audio->terminate) {
 
@@ -92,7 +90,7 @@ void *input_alsa(void *data) {
         write_to_cava_input_buffers(frames * CHANNELS_COUNT, buf, data);
     }
 
-    free(buffer);
+    free(buf);
     snd_pcm_close(handle);
     return NULL;
 }
