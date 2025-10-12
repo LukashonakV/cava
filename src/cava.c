@@ -705,9 +705,6 @@ Keys:\n\
         pthread_mutex_unlock(&audio.lock);
         pthread_join(p_thread, NULL);
 
-        if (p.userEQ_enabled)
-            free(p.userEQ);
-
         free(audio.source);
         free(audio.cava_in);
         cleanup(p.output);

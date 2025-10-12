@@ -204,9 +204,10 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
             audio->terminate = 1;
             exit(EXIT_FAILURE);
         }
-        if (audio_raw->number_of_bars <= 1) {
+        if (audio_raw->number_of_bars < audio_raw->output_channels) {
             cleanup(prm->output);
-            fprintf(stderr, "fixed number of bars must be at least 1\n");
+            fprintf(stderr, "fixed number of bars must be at least 1 with mono output and "
+                            "2 with stereo output\n");
             exit(EXIT_FAILURE);
         }
         if (audio_raw->output_channels == 2 && audio_raw->number_of_bars % 2 != 0) {

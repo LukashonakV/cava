@@ -524,6 +524,8 @@ bool validate_config(struct config_params *p, struct error_s *error) {
 
 bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colorsOnly,
                  struct error_s *error, int reload) {
+    if (reload == 1)
+        config_clean(p);
 
 #ifdef _WIN32
     p->hFile = NULL;
@@ -751,12 +753,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 
     p->gradient = iniparser_getint(ini, "color:gradient", 0);
-
-    if (reload) {
-        for (int i = 0; i < 8; ++i)
-            free(p->gradient_colors[i]);
-    }
-    free(p->gradient_colors);
     p->gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
 
     p->gradient_colors[0] = strdup(iniparser_getstring(ini, "color:gradient_color_1", "not_set"));
@@ -769,12 +765,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     p->gradient_colors[7] = strdup(iniparser_getstring(ini, "color:gradient_color_8", "not_set"));
 
     p->horizontal_gradient = iniparser_getint(ini, "color:horizontal_gradient", 0);
-
-    if (reload) {
-        for (int i = 0; i < 8; ++i)
-            free(p->horizontal_gradient_colors[i]);
-    }
-    free(p->horizontal_gradient_colors);
     p->horizontal_gradient_colors = (char **)malloc(sizeof(char *) * 8 * 9);
 
     p->horizontal_gradient_colors[0] =
@@ -1211,4 +1201,35 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, bool colors
     free(cava_config_home);
 
     return result;
+}
+
+void config_clean(struct config_params *prm) {
+    if (prm->color)
+        free(prm->color);
+    if (prm->bcolor)
+        free(prm->bcolor);
+    if (prm->raw_target)
+        free(prm->raw_target);
+    if (prm->audio_source)
+        free(prm->audio_source);
+    if (prm->gradient_colors) {
+        for (int i = 0; prm->gradient_colors[i] != NULL; ++i)
+            free(prm->gradient_colors[i]);
+        free(prm->gradient_colors);
+    }
+    if (prm->horizontal_gradient_colors) {
+        for (int i = 0; prm->horizontal_gradient_colors[i] != NULL; ++i)
+            free(prm->horizontal_gradient_colors[i]);
+        free(prm->horizontal_gradient_colors);
+    }
+    if (prm->data_format)
+        free(prm->data_format);
+    if (prm->vertex_shader)
+        free(prm->vertex_shader);
+    if (prm->fragment_shader)
+        free(prm->fragment_shader);
+    if (prm->theme)
+        free(prm->theme);
+    if (prm->userEQ)
+        free(prm->userEQ);
 }
