@@ -190,7 +190,7 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
         audio->channels = prm->channels;
         audio->active = prm->active;
         audio->remix = prm->remix;
-        audio->virtual_ = prm->virtual_;
+        audio->virtual_node = prm->virtual_node;
         ret = &input_pipewire;
         break;
 #endif
