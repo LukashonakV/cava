@@ -88,6 +88,11 @@ static void on_stream_state_changed(void *_data, [[maybe_unused]] enum pw_stream
     case PW_STREAM_STATE_STREAMING:
         pw_loop_update_timer(pw_main_loop_get_loop(data->loop), data->timer, NULL, NULL, false);
         break;
+    case PW_STREAM_STATE_ERROR:
+    case PW_STREAM_STATE_UNCONNECTED:
+        data->cava_audio->terminate = 1;
+        pw_main_loop_quit(data->loop);
+        break;
     default:
         break;
     }
@@ -177,7 +182,7 @@ void *input_pipewire(void *audiodata) {
     else
         pw_properties_set(props, PW_KEY_NODE_PASSIVE, "true");
 
-    if (data.cava_audio->virtual_)
+    if (data.cava_audio->virtual_node)
         pw_properties_set(props, PW_KEY_NODE_VIRTUAL, "true");
 
     enum spa_audio_format audio_format = SPA_AUDIO_FORMAT_S16;

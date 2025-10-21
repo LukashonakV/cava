@@ -68,7 +68,7 @@ int signal_received = 0;
 
 // these variables are used only in main, but making them global
 // will allow us to not free them on exit without ASan complaining
-struct config_params p;
+struct config_params p = {0};
 
 // general: handle signals
 #ifdef _WIN32
@@ -173,7 +173,6 @@ Keys:\n\
             abort();
         }
     }
-    int reload = 0;
 
     // general: main loop
     while (1) {
@@ -182,7 +181,7 @@ Keys:\n\
         // config: load
         struct error_s error;
         error.length = 0;
-        if (!load_config(configPath, &p, 0, &error, reload)) {
+        if (!load_config(configPath, &p, &error)) {
             fprintf(stderr, "Error loading config. %s", error.message);
             exit(EXIT_FAILURE);
         }
@@ -456,7 +455,6 @@ Keys:\n\
                 ch = 0;
 
                 if (should_reload) {
-
                     reloadConf = true;
                     resizeTerminal = true;
                     should_reload = 0;
@@ -464,14 +462,23 @@ Keys:\n\
 
                 if (reload_colors) {
                     struct error_s error;
+                    char *themeFile;
                     error.length = 0;
-                    if (!load_config(configPath, (void *)&p, 1, &error, reload)) {
+                    bool result = get_themeFile(configPath, &p, NULL, &error, &themeFile);
+                    if (!result) {
                         cleanup(p.output);
+                        exit(EXIT_FAILURE);
+                    }
+                    if (!load_colors(themeFile, (void *)&p, &error)) {
+                        cleanup(p.output);
+                        free(themeFile);
                         fprintf(stderr, "Error loading config. %s", error.message);
                         exit(EXIT_FAILURE);
                     }
                     resizeTerminal = true;
                     reload_colors = 0;
+                    free(themeFile);
+                    break;
                 }
 
 #ifndef NDEBUG
@@ -480,6 +487,15 @@ Keys:\n\
                 refresh();
 #endif
 #endif
+
+                // checking if audio thread has exited unexpectedly
+                pthread_mutex_lock(&audio.lock);
+                if (audio.terminate == 1) {
+                    cleanup(p.output);
+                    fprintf(stderr, "Audio thread exited unexpectedly. %s\n", audio.error_message);
+                    exit(EXIT_FAILURE);
+                }
+                pthread_mutex_unlock(&audio.lock);
 
                 // process: check if input is present
                 silence = true;
@@ -650,14 +666,6 @@ Keys:\n\
                            audio_raw.number_of_bars * sizeof(float));
                 }
 
-                // checking if audio thread has exited unexpectedly
-                pthread_mutex_lock(&audio.lock);
-                if (audio.terminate == 1) {
-                    cleanup(p.output);
-                    fprintf(stderr, "Audio thread exited unexpectedly. %s\n", audio.error_message);
-                    exit(EXIT_FAILURE);
-                }
-                pthread_mutex_unlock(&audio.lock);
 #ifdef _WIN32
                 QueryPerformanceCounter(&t2);
                 elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
@@ -708,7 +716,6 @@ Keys:\n\
         free(audio.source);
         free(audio.cava_in);
         cleanup(p.output);
-        reload = 1;
 
         if (should_quit && signal_received == 0) {
             if (p.zero_test && total_bar_height > 0) {

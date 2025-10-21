@@ -143,10 +143,6 @@
       <Message>
       </Message>
     </PostBuildEvent>
-    <ProjectReference>
-      <UseLibraryDependencyInputs>
-      </UseLibraryDependencyInputs>
-    </ProjectReference>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -197,12 +193,6 @@
     <ClCompile Include="..\..\src\output\noritake.c" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="cava.rc" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="..\..\include\cava\cavacore.h" />
     <ClInclude Include="..\..\include\cava\common.h" />
     <ClInclude Include="..\..\include\cava\config.h" />
@@ -216,6 +206,12 @@
     <ClInclude Include="..\..\include\cava\output\sdl_glsl.h" />
     <ClInclude Include="..\..\include\cava\output\terminal_noncurses.h" />
     <ClInclude Include="..\..\include\cava\util.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="cava.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
