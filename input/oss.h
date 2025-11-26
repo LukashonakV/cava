@@ -2,4 +2,6 @@
 
 #pragma once
 
+#include "common.h"
+
 void *input_oss(void *data);
