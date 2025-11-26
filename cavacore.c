@@ -2,9 +2,7 @@
 #ifndef M_PI
 #define M_PI 3.1415926535897932385
 #endif
-#include <fftw3.h>
 #include <math.h>
-#include <stdlib.h>
 #include <string.h>
 #ifdef __ANDROID__
 #include <jni.h>
@@ -487,6 +485,8 @@ void cava_destroy(struct cava_plan *p) {
         fftw_free(p->in_r_raw);
         fftw_destroy_plan(p->p_r);
     }
+
+    free(p);
 }
 
 #ifdef __ANDROID__

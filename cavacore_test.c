@@ -6,7 +6,6 @@
 #include <math.h>
 #include <stdio.h>
 
-#include <stdlib.h>
 #define PI 3.141592654
 
 void main() {
@@ -96,7 +95,6 @@ void main() {
             bp_ok = 0;
     }
     cava_destroy(plan);
-    free(plan);
     free(cava_in);
     free(cava_out);
     if (bp_ok == 1) {

@@ -1,22 +1,16 @@
 #define UNICODE
 #define _UNICODE
 
+#include "winscap.h"
+
 #include <initguid.h>
 #include <mmdeviceapi.h>
 
 #include <audioclient.h>
-#include <fcntl.h>
 #include <io.h>
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <windows.h>
 
 #include <functiondiscoverykeys.h>
-
-#include "common.h"
 
 static void make_stereo_waveformatex(const WAVEFORMATEX *orig, WAVEFORMATEX *stereo) {
     *stereo = *orig;
@@ -354,7 +348,7 @@ void process_multichannel(UINT32 numFramesAvailable, const WAVEFORMATEX format, 
     free(stereo_buffer);
 }
 
-void input_winscap(void *data) {
+void *input_winscap(void *data) {
 
     static const GUID CLSID_MMDeviceEnumerator = {0xBCDE0395, 0xE52F, 0x467C, 0x8E, 0x3D, 0xC4,
                                                   0x57,       0x92,   0x91,   0x69, 0x2E};
@@ -372,7 +366,7 @@ void input_winscap(void *data) {
     if (FAILED(hr)) {
         fwprintf(stderr, L"CoInitialize failed: 0x%08lx\n", hr);
         pthread_mutex_unlock(&audio->lock);
-        return;
+        return NULL;
     }
 
     WAVEFORMATEX *wfx = NULL;
@@ -384,7 +378,7 @@ void input_winscap(void *data) {
         fwprintf(stderr, L"Failed to create device enumerator: 0x%08lx\n", hr);
         CoUninitialize();
         pthread_mutex_unlock(&audio->lock);
-        return;
+        return NULL;
     }
 
     HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -547,4 +541,6 @@ void input_winscap(void *data) {
     if (pEnumerator)
         pEnumerator->lpVtbl->Release(pEnumerator);
     CoUninitialize();
+
+    return NULL;
 }
