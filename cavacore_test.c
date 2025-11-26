@@ -2,11 +2,10 @@
 // gcc -c -g cavacore_test.c
 // gcc -o cavacore_test cavacore_test.o build/libcavacore.a -lm -lfftw3
 
-#include "include/cava/cavacore.h"
+#include "cavacore.h"
 #include <math.h>
 #include <stdio.h>
 
-#include <stdlib.h>
 #define PI 3.141592654
 
 void main() {
@@ -20,8 +19,8 @@ void main() {
     double noise_reduction = 0.77;
     int low_cut_off = 50;
     int high_cut_off = 10000;
-    double blueprint_200MHz[10] = {0, 0, 0.922, 0.004, 0, 0, 0, 0, 0, 0};
-    double blueprint_2000MHz[10] = {0, 0, 0, 0, 0, 0, 0.571, 0.002, 0, 0};
+    double blueprint_200MHz[10] = {0, 0, 0.930, 0.004, 0, 0, 0, 0, 0, 0};
+    double blueprint_2000MHz[10] = {0, 0, 0, 0, 0, 0, 0.878, 0.003, 0, 0};
 
     printf("planning visualization with %d bars per channel, %d rate, %d channels, autosens, "
            "%.2f noise reduction, %d - %d MHz bandwith.\n",
@@ -96,7 +95,6 @@ void main() {
             bp_ok = 0;
     }
     cava_destroy(plan);
-    free(plan);
     free(cava_in);
     free(cava_out);
     if (bp_ok == 1) {

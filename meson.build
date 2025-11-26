@@ -1,7 +1,7 @@
 project(
     'cava',
     'c',
-    version: '0.10.6',
+    version: '0.10.7',
     license: 'MIT',
     meson_version: '>=0.50.0',
     default_options : [
@@ -23,31 +23,22 @@ c_args = ['-Wall',
           '-Wno-vla-parameter'
          ]
 
-src_files = files('src/cavacore.c',
-                  'src/common.c',
-                  'src/config.c',
-                  'src/input/common.c',
-                  'src/input/fifo.c',
-                  'src/input/shmem.c',
-                  'src/output/common.c',
-                  'src/output/terminal_noncurses.c',
-                  'src/output/raw.c',
-                  'src/output/noritake.c'
+src_files = files('cavacore.c',
+                  'config.c',
+                  'input/common.c',
+                  'input/fifo.c',
+                  'input/shmem.c',
+                  'output/common.c',
+                  'output/terminal_noncurses.c',
+                  'output/raw.c',
+                  'output/noritake.c'
                   )
 
 h_files = files('include/cava/cavacore.h',
                 'include/cava/common.h',
-                'include/cava/config.h',
-                'include/cava/debug.h',
-                'include/cava/util.h'
-                )
+                'include/cava/config.h')
 h_I_files = files('include/cava/input/common.h')
-
-h_O_files = files('include/cava/output/common.h',
-                  'include/cava/output/terminal_noncurses.h',
-                  'include/cava/output/raw.h',
-                  'include/cava/output/noritake.h'
-                  )
+h_O_files = files('include/cava/output/common.h')
 
 deps = []
 inc_dirs = ['include']
@@ -120,10 +111,8 @@ endif
 ncursesw_dep = dependency('ncursesw', required: get_option('output_ncurses'))
 if ncursesw_dep.found()
    if cc.has_function('initscr', dependencies: ncursesw_dep)
-      src_files += files('src/output/terminal_ncurses.c',
-                         'src/output/terminal_bcircle.c')
-      h_O_files += files('include/cava/output/terminal_ncurses.h',
-                         'include/cava/output/terminal_bcircle.h')
+      src_files += files('output/terminal_ncurses.c',
+                         'output/terminal_bcircle.c')
       deps += ncursesw_dep
       add_project_arguments('-DNCURSES', language: 'c')
    else
@@ -137,7 +126,7 @@ endif
 alsa_dep = cc.find_library('asound', required: get_option('input_alsa'))
 if alsa_dep.found()
    if cc.has_function('snd_pcm_open', dependencies: alsa_dep)
-      src_files += 'src/input/alsa.c'
+      src_files += 'input/alsa.c'
       deps += alsa_dep
       add_project_arguments('-DALSA', language: 'c')
    else
@@ -151,7 +140,7 @@ endif
 port_dep = cc.find_library('portaudio', required: get_option('input_portaudio'))
 if port_dep.found()
    if cc.has_function('Pa_Initialize', dependencies: port_dep)
-      src_files += 'src/input/portaudio.c'
+      src_files += 'input/portaudio.c'
       deps += port_dep
       add_project_arguments('-DPORTAUDIO', language: 'c')
    else
@@ -166,7 +155,7 @@ pulse_dep = dependency('libpulse', required: get_option('input_pulse'), not_foun
 pulse_simple_dep = cc.find_library('pulse-simple', required: get_option('input_pulse'))
 if pulse_dep.found() and pulse_simple_dep.found()
    if cc.has_function('pa_simple_new', dependencies: [pulse_dep, pulse_simple_dep])
-      src_files += 'src/input/pulse.c'
+      src_files += 'input/pulse.c'
       deps += [pulse_dep, pulse_simple_dep]
       add_project_arguments('-DPULSE', language: 'c')
    else
@@ -180,7 +169,7 @@ endif
 sndio_dep = cc.find_library('sndio', required: get_option('input_sndio'))
 if sndio_dep.found()
    if cc.has_function('sio_open', dependencies: sndio_dep)
-      src_files += 'src/input/sndio.c'
+      src_files += 'input/sndio.c'
       deps += sndio_dep
       add_project_arguments('-DSNDIO', language: 'c')
    else
@@ -194,7 +183,7 @@ endif
 pipewire_dep = dependency('libpipewire-0.3', required: get_option('input_pipewire'), not_found_message: 'pipewire is not found. building without pipewire support')
 if pipewire_dep.found()
    if cc.has_function('pw_stream_connect', dependencies: pipewire_dep)
-      src_files += 'src/input/pipewire.c'
+      src_files += 'input/pipewire.c'
       deps += pipewire_dep
       add_project_arguments('-DPIPEWIRE', language: 'c')
    else
@@ -207,14 +196,12 @@ sdl2_dep = dependency('sdl2', required: get_option('output_sdl'), not_found_mess
 opengl_dep = dependency('gl', required: get_option('output_sdl_glsl'), not_found_message: 'OpenGL library is not found. building without OpenGL')
 if sdl2_dep.found()
    if cc.has_function('SDL_Init', dependencies: sdl2_dep)
-      src_files += 'src/output/sdl_cava.c'
-      h_O_files += 'include/cava/output/sdl_cava.h'
+      src_files += 'output/sdl_cava.c'
       deps += sdl2_dep
       add_project_arguments('-DSDL', language: 'c')
 
       if opengl_dep.found()
-         src_files += 'src/output/sdl_glsl.c'
-         h_O_files += 'include/cava/output/sdl_glsl.h'
+         src_files += 'output/sdl_glsl.c'
          deps += opengl_dep
          add_project_arguments('-DSDL_GLSL', language: 'c')
       endif
@@ -240,8 +227,7 @@ int main(int argc, char** argv) {
    endif
 
    if have_oss
-      src_files += 'src/input/oss.c'
-      h_I_files += 'include/cava/input/oss.h'
+      src_files += 'input/oss.c'
       add_project_arguments('-DOSS -D__BSD_VISIBLE', language: 'c')
    else
       warning('No oss dev files found. building without oss')
@@ -251,8 +237,7 @@ endif
 ### JACK
 jack_dep = dependency('jack', required: get_option('input_jack'), not_found_message: 'jack library is not found. building without jack')
 if jack_dep.found()
-   src_files += 'src/input/jack.c'
-   h_I_files += 'include/cava/input/jack.h'
+   src_files += 'input/jack.c'
    deps += jack_dep
    add_project_arguments('-DJACK', language: 'c')
 endif
@@ -323,7 +308,7 @@ cava_dep = declare_dependency(link_with: cava_lib,
 
 if is_exe
    executable('cava',
-              [src_files, 'src/cava.c'],
+              [src_files, 'cava.c'],
               dependencies: deps,
               include_directories: inc_dirs,
               c_args: c_args,
@@ -339,5 +324,5 @@ pkg.generate(libraries: cava_lib,
              subdirs: ['cava', 'cava/input', 'cava/output'],
              version: meson.project_version(),
              name: 'libcava',
-             filebase: 'cava',
+             filebase: 'libcava',
              description: 'A cava library')
