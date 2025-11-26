@@ -1,30 +1,5 @@
 #pragma once
 
-#include "../cavacore.h"
-#include "../config.h"
-#include "../input/common.h"
-
-#ifdef SDL
-#include "sdl_cava.h"
-#endif
-
-#ifdef SDL_GLSL
-#include "sdl_glsl.h"
-#endif
-
-#include "noritake.h"
-#include "raw.h"
-#include "terminal_noncurses.h"
-
-#ifndef _WIN32
-#ifdef NCURSES
-#include "terminal_bcircle.h"
-#include "terminal_ncurses.h"
-#include <curses.h>
-#endif
-
-#endif
-
 struct audio_raw {
     int *bars;
     int *previous_frame;
@@ -56,3 +31,4 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
 
 int audio_raw_clean(struct audio_raw *audio_raw);
 int audio_raw_destroy(struct audio_raw *audio_raw);
+void cleanup(int output_mode);
