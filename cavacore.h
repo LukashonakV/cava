@@ -32,7 +32,7 @@ extern "C" {
 
 // cava_plan, parameters used internally by cavacore, do not modify these directly
 // only the cut off frequencies is of any potential interest to read out,
-// the rest should most likley be hidden somehow
+// the rest should most likely be hidden somehow
 struct cava_plan {
     int FFTbassbufferSize;
     int FFTbufferSize;

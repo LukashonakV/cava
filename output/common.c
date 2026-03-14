@@ -42,6 +42,14 @@ float *monstercat_filter(float *bars, int number_of_bars, int waves, double mons
 
 int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct config_params *prm,
                    struct cava_plan **plan) {
+#ifndef _WIN32
+    audio_raw->fp = -1;
+    audio_raw->keepalive_fd = -1;
+    audio_raw->close_output_fd = false;
+#endif
+    audio_raw->right_bars = NULL;
+    audio_raw->right_previous_frame = NULL;
+
     audio_raw->channels = audio->channels;
 
     if (prm->upper_cut_off > audio->rate / 2) {
@@ -61,7 +69,8 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
     if (prm->stereo)
         audio_raw->output_channels = 2;
 
-    if (prm->orientation == ORIENT_LEFT || prm->orientation == ORIENT_RIGHT) {
+    if (prm->orientation == ORIENT_LEFT || prm->orientation == ORIENT_RIGHT ||
+        prm->orientation == ORIENT_SPLIT_V) {
         audio_raw->dimension_bar = &audio_raw->height;
         audio_raw->dimension_value = &audio_raw->width;
     } else {
@@ -101,6 +110,7 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
         init_sdl_glsl_surface(&audio_raw->width, &audio_raw->height, prm->color, prm->bcolor,
                               prm->bar_width, prm->bar_spacing, prm->gradient, prm->gradient_count,
                               prm->gradient_colors);
+        *audio_raw->dimension_value = 1;
         break;
 #endif
     case OUTPUT_NONCURSES:
@@ -109,19 +119,27 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
         if (prm->xaxis != NONE)
             audio_raw->lines--;
 
-        audio_raw->height = audio_raw->lines * 8;
+        audio_raw->height = audio_raw->lines;
         break;
     case OUTPUT_RAW:
     case OUTPUT_NORITAKE:
         if (strcmp(prm->raw_target, "/dev/stdout") != 0) {
 #ifndef _WIN32
-            int fptest;
+            if (audio_raw->close_output_fd && audio_raw->fp != -1) {
+                close(audio_raw->fp);
+                audio_raw->fp = -1;
+                audio_raw->close_output_fd = false;
+            }
+            if (audio_raw->keepalive_fd != -1) {
+                close(audio_raw->keepalive_fd);
+                audio_raw->keepalive_fd = -1;
+            }
             // checking if file exists
             if (access(prm->raw_target, F_OK) != -1) {
                 // file exists, testopening in case it's a fifo
-                fptest = open(prm->raw_target, O_RDONLY | O_NONBLOCK, 0644);
+                audio_raw->keepalive_fd = open(prm->raw_target, O_RDONLY | O_NONBLOCK, 0644);
 
-                if (fptest == -1) {
+                if (audio_raw->keepalive_fd == -1) {
                     fprintf(stderr, "could not open file %s for writing\n", prm->raw_target);
                     exit(1);
                 }
@@ -132,9 +150,14 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
                     exit(1);
                 }
                 // fifo needs to be open for reading in order to write to it
-                fptest = open(prm->raw_target, O_RDONLY | O_NONBLOCK, 0644);
+                audio_raw->keepalive_fd = open(prm->raw_target, O_RDONLY | O_NONBLOCK, 0644);
+                if (audio_raw->keepalive_fd == -1) {
+                    fprintf(stderr, "could not open file %s for writing\n", prm->raw_target);
+                    exit(1);
+                }
             }
-            prm->fp = open(prm->raw_target, O_WRONLY | O_NONBLOCK | O_CREAT, 0644);
+            audio_raw->fp = open(prm->raw_target, O_WRONLY | O_NONBLOCK | O_CREAT, 0644);
+            audio_raw->close_output_fd = true;
 #else
             int pipeLength = strlen("\\\\.\\pipe\\") + strlen(prm->raw_target) + 1;
             char *pipePath = malloc(pipeLength);
@@ -151,13 +174,13 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 #endif
         } else {
 #ifndef _WIN32
-            prm->fp = fileno(stdout);
+            audio_raw->fp = fileno(stdout);
 #else
             prm->hFile = GetStdHandle(STD_OUTPUT_HANDLE);
 #endif
         }
 #ifndef _WIN32
-        if (prm->fp == -1) {
+        if (audio_raw->fp == -1) {
 #else
         if (prm->hFile == INVALID_HANDLE_VALUE) {
 #endif
@@ -214,12 +237,12 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
         if (prm->output == OUTPUT_SDL_GLSL) {
             if (audio_raw->number_of_bars > 512)
-                audio_raw->number_of_bars = 512; // cant have more than 512 bars in glsl due to
+                audio_raw->number_of_bars = 512; // can't have more than 512 bars in glsl due to
                                                  // shader program implementation limitations
         } else {
             if (audio_raw->number_of_bars / audio_raw->output_channels > 512)
                 audio_raw->number_of_bars =
-                    512 * audio_raw->output_channels; // cant have more than 512 bars on
+                    512 * audio_raw->output_channels; // can't have more than 512 bars on
                                                       // 44100 rate per channel
         }
 
@@ -233,7 +256,7 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
             audio_raw->number_of_bars--; // stereo must have even numbers of bars
     }
 
-    // checks if there is stil extra room, will use this to center
+    // checks if there is still extra room, will use this to center
     if (prm->center_align) {
         audio_raw->remainder =
             (*audio_raw->dimension_bar - audio_raw->number_of_bars * prm->bar_width -
@@ -253,6 +276,10 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
                                 audio_raw->width, audio_raw->lines, prm->bar_width,
                                 prm->orientation, prm->blendDirection);
     }
+    if ((prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) &&
+        prm->split_stereo) {
+        audio_raw->number_of_bars *= 2;
+    }
 
     if (prm->userEQ_enabled && (audio_raw->number_of_bars / audio_raw->output_channels > 0)) {
         audio_raw->userEQ_keys_to_bars_ratio =
@@ -268,6 +295,11 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
         cleanup(prm->output);
         fprintf(stderr, "Error initializing cava . %s", (*plan)->error_message);
         exit(EXIT_FAILURE);
+    }
+
+    if (!prm->waveform) {
+        audio_raw->number_of_bars =
+            (audio_raw->number_of_bars / audio_raw->output_channels) * (*plan)->audio_channels;
     }
 
     // if the sample rate is unusual high or low, we need to adjust the input buffer size
@@ -296,6 +328,14 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
     audio_raw->previous_frame = (int *)malloc(audio_raw->number_of_bars * sizeof(int));
     audio_raw->cava_out = (double *)malloc(audio_raw->number_of_bars * audio->channels /
                                            audio_raw->output_channels * sizeof(double));
+    if (prm->split_stereo) {
+        audio_raw->right_bars =
+            (int *)malloc(audio_raw->number_of_bars * sizeof(int) + sizeof(int));
+        audio_raw->right_previous_frame =
+            (int *)malloc(audio_raw->number_of_bars * sizeof(int) + sizeof(int));
+        memset(audio_raw->right_bars, 0, sizeof(int) * audio_raw->number_of_bars);
+        memset(audio_raw->right_previous_frame, 0, sizeof(int) * audio_raw->number_of_bars);
+    }
 
     memset(audio_raw->bars, 0, sizeof(int) * audio_raw->number_of_bars);
     memset(audio_raw->bars_raw, 0, sizeof(float) * audio_raw->number_of_bars);
@@ -306,10 +346,7 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
                audio_raw->output_channels);
 
     // process: calculate x axis values
-    prm->x_axis_info = 0;
-
     if (prm->xaxis != NONE) {
-        prm->x_axis_info = 1;
         double cut_off_frequency;
         if (prm->output == OUTPUT_NONCURSES) {
             printf("\r\033[%dB", audio_raw->lines + 1);
@@ -384,17 +421,23 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
                 audio_raw->cava_out[n] = (audio_raw->cava_out[n] + 1.0) / 2.0;
         }
 
-        if (prm->output == OUTPUT_SDL_GLSL) {
-            if (audio_raw->cava_out[n] > 1.0)
-                audio_raw->cava_out[n] = 1.0;
-            else if (audio_raw->cava_out[n] < 0.0)
-                audio_raw->cava_out[n] = 0.0;
-        } else {
-            audio_raw->cava_out[n] *= *audio_raw->dimension_value;
-            if (prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) {
-                audio_raw->cava_out[n] /= 2;
-            }
+        if (prm->sdl_glsl_gain != 1.0) {
+            audio_raw->cava_out[n] *= prm->sdl_glsl_gain;
         }
+
+        if (audio_raw->cava_out[n] > 1.0)
+            audio_raw->cava_out[n] = 1.0;
+        else if (audio_raw->cava_out[n] < 0.0)
+            audio_raw->cava_out[n] = 0.0;
+
+        audio_raw->cava_out[n] *= *audio_raw->dimension_value;
+        if (prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) {
+            audio_raw->cava_out[n] /= 2;
+        }
+        if (prm->output == OUTPUT_NONCURSES) {
+            audio_raw->cava_out[n] *= 8 * prm->max_height;
+        }
+
         if (prm->waveform) {
             audio_raw->bars_raw[n] = audio_raw->cava_out[n];
         }
@@ -443,25 +486,49 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
         if (audio_raw->channels == 2) {
             if (prm->stereo) {
                 // mirroring stereo channels
-                for (int n = 0; n < audio_raw->number_of_bars; n++) {
-                    if (n < audio_raw->number_of_bars / 2) {
-                        if (prm->reverse) {
-                            audio_raw->bars_raw[n] = audio_raw->bars_left[n];
+                if ((prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) &&
+                    prm->split_stereo) {
+                    for (int n = 0; n < audio_raw->number_of_bars; n++) {
+                        if (n < audio_raw->number_of_bars / 2) {
+                            if (prm->reverse) {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_left[audio_raw->number_of_bars / 2 - n - 1];
+                            } else {
+                                audio_raw->bars_raw[n] = audio_raw->bars_left[n];
+                            }
                         } else {
-                            audio_raw->bars_raw[n] =
-                                audio_raw->bars_left[audio_raw->number_of_bars / 2 - n - 1];
+                            if (prm->reverse) {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_right[audio_raw->number_of_bars - n - 1];
+                            } else {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_right[n - audio_raw->number_of_bars / 2];
+                            }
                         }
-                    } else {
-                        if (prm->reverse) {
-                            audio_raw->bars_raw[n] =
-                                audio_raw->bars_right[audio_raw->number_of_bars - n - 1];
+                    }
+
+                } else {
+                    for (int n = 0; n < audio_raw->number_of_bars; n++) {
+                        if (n < audio_raw->number_of_bars / 2) {
+                            if (prm->reverse) {
+                                audio_raw->bars_raw[n] = audio_raw->bars_left[n];
+                            } else {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_left[audio_raw->number_of_bars / 2 - n - 1];
+                            }
                         } else {
-                            audio_raw->bars_raw[n] =
-                                audio_raw->bars_right[n - audio_raw->number_of_bars / 2];
+                            if (prm->reverse) {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_right[audio_raw->number_of_bars - n - 1];
+                            } else {
+                                audio_raw->bars_raw[n] =
+                                    audio_raw->bars_right[n - audio_raw->number_of_bars / 2];
+                            }
                         }
                     }
                 }
             } else {
+
                 // stereo mono output
                 for (int n = 0; n < audio_raw->number_of_bars; n++) {
                     if (prm->reverse) {
@@ -523,6 +590,14 @@ int audio_raw_clean(struct audio_raw *audio_raw) {
     free(audio_raw->bars_raw);
     free(audio_raw->previous_bars_raw);
     free(audio_raw->previous_frame);
+    if (audio_raw->right_bars) {
+        free(audio_raw->right_bars);
+        audio_raw->right_bars = NULL;
+    }
+    if (audio_raw->right_previous_frame) {
+        free(audio_raw->right_previous_frame);
+        audio_raw->right_previous_frame = NULL;
+    }
 
     return 0;
 }

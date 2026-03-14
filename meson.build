@@ -295,12 +295,17 @@ if have_font
       install_dir: font_dir)
 endif
 
+project_version = meson.project_version()
+major_version  = (project_version.split('.'))[0]
+
 cava_lib = shared_library('cava',
                           sources: src_files,
                           dependencies: deps,
                           include_directories: inc_dirs,
                           c_args: c_args,
-                          install: true)
+                          install: true,
+                          version: project_version,
+                          soversion: major_version)
 
 cava_dep = declare_dependency(link_with: cava_lib,
                               dependencies: deps,

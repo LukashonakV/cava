@@ -10,6 +10,7 @@
 #endif
 #include <string.h>
 #ifndef _WIN32
+#include <getopt.h>
 #include <unistd.h>
 #endif
 #ifdef NCURSES

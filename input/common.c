@@ -104,7 +104,7 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
     strcpy(audio->source, prm->audio_source);
 
     audio->cava_in = (double *)malloc(audio->cava_buffer_size * sizeof(double));
-    memset(audio->cava_in, 0, sizeof(int) * audio->cava_buffer_size);
+    memset(audio->cava_in, 0, sizeof(double) * audio->cava_buffer_size);
 
     audio->threadparams = 0; // most input threads don't adjust the parameters
     audio->terminate = 0;
