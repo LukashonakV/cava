@@ -21,38 +21,97 @@
 #ifdef _WIN32
 char *optarg = NULL;
 int optind = 1;
+int optopt = 0;
 
 static int getopt(int argc, char *const argv[], const char *optstring) {
     if ((optind >= argc) || (argv[optind][0] != '-') || (argv[optind][0] == 0)) {
         return -1;
     }
 
+    if (argv[optind][0] == '-' && argv[optind][1] == '\0') {
+        return -1;
+    }
+
+    if (strcmp(argv[optind], "--") == 0) {
+        optind++;
+        return -1;
+    }
+
+    if (argv[optind][0] == '-' && argv[optind][1] == '-' && argv[optind][2] != '\0') {
+        const char *longopt = argv[optind] + 2;
+        if (strcmp(longopt, "help") == 0) {
+            optopt = 'h';
+            optind++;
+            return 'h';
+        }
+        if (strcmp(longopt, "version") == 0) {
+            optopt = 'v';
+            optind++;
+            return 'v';
+        }
+        if (strcmp(longopt, "config") == 0) {
+            optopt = 'p';
+            optind++;
+            if (optind >= argc) {
+                return ':';
+            }
+            optarg = argv[optind];
+            optind++;
+            return 'p';
+        }
+        optopt = 0;
+        optind++;
+        return '?';
+    }
+
     int opt = argv[optind][1];
     const char *p = strchr(optstring, opt);
 
     if (p == NULL) {
+        optopt = opt;
+        optind++;
         return '?';
     }
     if (p[1] == ':') {
+        optopt = opt;
         optind++;
         if (optind >= argc) {
-            return '?';
+            return ':';
         }
         optarg = argv[optind];
         optind++;
+        return opt;
     }
+
+    optopt = opt;
+    optind++;
     return opt;
 }
 #endif
 
 // used by sig handler
 // whether we should reload the config or not
-int should_reload = 0;
+volatile sig_atomic_t should_reload = 0;
 // whether we should only reload colors or not
-int reload_colors = 0;
+volatile sig_atomic_t reload_colors = 0;
 // whether we should quit
-int should_quit = 0;
-int signal_received = 0;
+volatile sig_atomic_t should_quit = 0;
+volatile sig_atomic_t signal_received = 0;
+
+static bool get_file_state(const char *path, time_t *mtime, long long *size) {
+#ifdef _WIN32
+    struct _stat st;
+    if (_stat(path, &st) != 0)
+        return false;
+#else
+    struct stat st;
+    if (stat(path, &st) != 0)
+        return false;
+#endif
+    *mtime = st.st_mtime;
+    *size = (long long)st.st_size;
+    return true;
+}
 
 // these variables are used only in main, but making them global
 // will allow us to not free them on exit without ASan complaining
@@ -99,12 +158,7 @@ void sig_handler(int sig_no) {
 // general: entry point
 int main(int argc, char **argv) {
 
-#ifndef _WIN32
-    // general: console title
-    printf("%c]0;%s%c", '\033', PACKAGE, '\007');
-#endif // !_WIN32
-
-    // general: handle command-line arguments
+    // handle command-line arguments
     char configPath[PATH_MAX];
     configPath[0] = '\0';
 #ifdef _WIN32
@@ -123,12 +177,13 @@ int main(int argc, char **argv) {
     sigaction(SIGUSR2, &action, NULL);
 #endif
     char *usage = "\n\
-Usage : " PACKAGE " [options]\n\
-Visualize audio input in terminal. \n\
+Usage: " PACKAGE " [options]\n\
+Visualize audio input in terminal.\n\
 \n\
 Options:\n\
-	-p          path to config file\n\
-	-v          print version\n\
+\t-p, --config <path>    Path to config file\n\
+\t-v, --version          Print version and exit\n\
+\t-h, --help             Show this help and exit\n\
 \n\
 Keys:\n\
         Up        Increase sensitivity\n\
@@ -143,24 +198,55 @@ Keys:\n\
         q         Quit\n\
 \n";
     int c;
-    while ((c = getopt(argc, argv, "p:vh")) != -1) {
+#ifndef _WIN32
+    static struct option long_options[] = {
+        {"config", required_argument, NULL, 'p'},
+        {"version", no_argument, NULL, 'v'},
+        {"help", no_argument, NULL, 'h'},
+        {0, 0, 0, 0},
+    };
+    opterr = 0;
+    while ((c = getopt_long(argc, argv, ":p:vh", long_options, NULL)) != -1) {
+#else
+    while ((c = getopt(argc, argv, ":p:vh")) != -1) {
+#endif
         switch (c) {
         case 'p': // argument: config path
             snprintf(configPath, sizeof(configPath), "%s", optarg);
             break;
         case 'h': // argument: print usage
             printf("%s", usage);
-            return 1;
-        case '?': // argument: print usage
-            printf("%s", usage);
-            return 1;
+            return 0;
         case 'v': // argument: print version
             printf(PACKAGE " " VERSION "\n");
             return 0;
+        case ':': // missing argument
+            fprintf(stderr, PACKAGE ": error: option requires an argument -- '%c'\n", optopt);
+            fprintf(stderr, "Try '%s --help' for more information.\n", PACKAGE);
+            return 1;
+        case '?': // unknown option
+            if (optopt != 0) {
+                fprintf(stderr, PACKAGE ": error: invalid option -- '%c'\n", optopt);
+            } else {
+                fprintf(stderr, PACKAGE ": error: invalid option\n");
+            }
+            fprintf(stderr, "Try '%s --help' for more information.\n", PACKAGE);
+            return 1;
         default: // argument: no arguments; exit
             abort();
         }
     }
+
+    if (optind < argc) {
+        fprintf(stderr, PACKAGE ": error: unknown argument '%s'\n", argv[optind]);
+        fprintf(stderr, "Try '%s --help' for more information.\n", PACKAGE);
+        return 1;
+    }
+
+#ifndef _WIN32
+    // general: console title
+    printf("%c]0;%s%c", '\033', PACKAGE, '\007');
+#endif // !_WIN32
 
     // general: main loop
     while (1) {
@@ -171,6 +257,13 @@ Keys:\n\
         if (!load_config(configPath, &p, &error)) {
             fprintf(stderr, "Error loading config. %s", error.message);
             exit(EXIT_FAILURE);
+        }
+
+        time_t config_mtime = 0;
+        long long config_size = 0;
+        bool has_config_state = false;
+        if (p.live_config) {
+            has_config_state = get_file_state(configPath, &config_mtime, &config_size);
         }
 
         p.inAtty = 0;
@@ -190,7 +283,7 @@ Keys:\n\
                 strncmp(ttyname(0), "/dev/ttyUSB", 11) == 0)
                 p.inAterminal = 1;
 
-            // in macos vitual terminals are called ttys(xyz) and there are no ttys
+            // in macos virtual terminals are called ttys(xyz) and there are no ttys
             if (strncmp(ttyname(0), "/dev/ttys", 9) == 0)
                 p.inAtty = 0;
 
@@ -336,14 +429,20 @@ Keys:\n\
 
             bool resizeTerminal = false;
 
-            int frame_time_msec = (1 / (float)p.framerate) * 1000;
-            struct timespec framerate_timer = {.tv_sec = 0, .tv_nsec = 0};
-            if (p.framerate <= 1) {
-                framerate_timer.tv_sec = frame_time_msec / 1000;
-            } else {
-                framerate_timer.tv_sec = 0;
-                framerate_timer.tv_nsec = frame_time_msec * 1e6;
-            }
+            int effective_framerate = p.framerate;
+            if (effective_framerate <= 0)
+                effective_framerate = 60;
+
+            long long frame_time_ns = (long long)(1000000000.0 / (double)effective_framerate);
+            if (frame_time_ns < 1)
+                frame_time_ns = 1;
+
+            int frame_time_msec = (int)(frame_time_ns / 1000000LL);
+            if (frame_time_msec < 1)
+                frame_time_msec = 1;
+
+            struct timespec framerate_timer = {.tv_sec = frame_time_ns / 1000000000LL,
+                                               .tv_nsec = frame_time_ns % 1000000000LL};
 #ifdef _WIN32
             LARGE_INTEGER frequency; // ticks per second
             LARGE_INTEGER t1, t2;    // ticks
@@ -394,14 +493,14 @@ Keys:\n\
                 case 'c': // reload colors
                     reload_colors = 1;
                     break;
-                case 'f': // change forground color
+                case 'f': // change foreground color
                     if (p.col < 7)
                         p.col++;
                     else
                         p.col = 0;
                     resizeTerminal = true;
                     break;
-                case 'b': // change backround color
+                case 'b': // change background color
                     if (p.bgcol < 7)
                         p.bgcol++;
                     else
@@ -409,27 +508,27 @@ Keys:\n\
                     resizeTerminal = true;
                     break;
                 case 'o': // change orientation
-                    if (p.output == OUTPUT_NCURSES) {
-                        if (p.orientation == ORIENT_BOTTOM) {
-                            p.orientation = ORIENT_RIGHT;
-                        } else if (p.orientation == ORIENT_RIGHT) {
-                            p.orientation = ORIENT_TOP;
-                        } else if (p.orientation == ORIENT_TOP) {
-                            p.orientation = ORIENT_LEFT;
-                        } else {
+                    p.orientation++;
+                    if (p.output == OUTPUT_NONCURSES) {
+                        if (p.orientation > ORIENT_SPLIT_V) {
                             p.orientation = ORIENT_BOTTOM;
                         }
-
-                        if (p.orientation == ORIENT_LEFT || p.orientation == ORIENT_RIGHT) {
-                            audio_raw.dimension_bar = &audio_raw.height;
-                            audio_raw.dimension_value = &audio_raw.width;
-                        } else {
-                            audio_raw.dimension_bar = &audio_raw.width;
-                            audio_raw.dimension_value = &audio_raw.height;
+                    } else if (p.output == OUTPUT_NCURSES) {
+                        if (p.orientation > ORIENT_RIGHT) {
+                            p.orientation = ORIENT_BOTTOM;
                         }
                     } else {
                         p.orientation =
                             (p.orientation == ORIENT_BOTTOM) ? ORIENT_TOP : ORIENT_BOTTOM;
+                    }
+
+                    if (p.orientation == ORIENT_LEFT || p.orientation == ORIENT_RIGHT ||
+                        p.orientation == ORIENT_SPLIT_V) {
+                        audio_raw.dimension_bar = &audio_raw.height;
+                        audio_raw.dimension_value = &audio_raw.width;
+                    } else {
+                        audio_raw.dimension_bar = &audio_raw.width;
+                        audio_raw.dimension_value = &audio_raw.height;
                     }
 
                     resizeTerminal = true;
@@ -469,6 +568,9 @@ Keys:\n\
                     break;
                 }
 
+                if (resizeTerminal)
+                    break;
+
                 // checking if audio thread has exited unexpectedly
                 pthread_mutex_lock(&audio.lock);
                 if (audio.terminate == 1) {
@@ -491,13 +593,29 @@ Keys:\n\
 
                 if (p.output != OUTPUT_SDL) {
                     if (p.sleep_timer) {
-                        if (silence && sleep_counter <= p.framerate * p.sleep_timer)
+                        int effective_framerate = p.framerate;
+                        if (effective_framerate <= 0)
+                            effective_framerate = 60;
+                        int sleep_limit = effective_framerate * p.sleep_timer;
+                        if (silence && sleep_counter <= sleep_limit)
                             sleep_counter++;
                         else if (!silence)
                             sleep_counter = 0;
 
-                        if (sleep_counter > p.framerate * p.sleep_timer) {
+                        if (sleep_counter > sleep_limit) {
                             nanosleep(&sleep_mode_timer, NULL);
+                            if (p.live_config) {
+                                time_t new_mtime = 0;
+                                long long new_size = 0;
+                                if (get_file_state(configPath, &new_mtime, &new_size) &&
+                                    (!has_config_state || new_mtime != config_mtime ||
+                                     new_size != config_size)) {
+                                    should_reload = 1;
+                                    config_mtime = new_mtime;
+                                    config_size = new_size;
+                                    has_config_state = true;
+                                }
+                            }
                             continue;
                         }
                     }
@@ -543,7 +661,7 @@ Keys:\n\
                     fflush(stdout);
                     printf("\033[2026l\033\\");
                 }
-                int rc;
+                int rc = 0;
 #ifdef _WIN32
                 QueryPerformanceCounter(&t1);
 #endif
@@ -565,23 +683,59 @@ Keys:\n\
                     break;
 #endif
                 case OUTPUT_NONCURSES:
-                    if (p.orientation == ORIENT_SPLIT_H) {
-                        rc = draw_terminal_noncurses(
-                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
-                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
-                            p.x_axis_info, ORIENT_BOTTOM, 1);
-                        rc = draw_terminal_noncurses(
-                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
-                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
-                            p.x_axis_info, ORIENT_TOP, 1);
+                    if (p.orientation == ORIENT_SPLIT_H || p.orientation == ORIENT_SPLIT_V) {
+                        // in split horizontal mode we need to draw two times
+                        // once for bottom and once for top
+                        // ORIENT_BOTTOM will be the top bars and ORIENT_TOP the bottom bars
+                        // since bottom hear means from mid upwards and top is from mid downwards
+
+                        if (p.split_stereo) {
+                            // in horizontal stereo mode we need to split the bars array in half
+                            // first half is right channel, second half is left channel
+                            for (int i = 0; i < audio_raw.number_of_bars / 2; i++) {
+                                audio_raw.right_bars[i] =
+                                    audio_raw.bars[i + audio_raw.number_of_bars / 2];
+                                audio_raw.right_previous_frame[i] =
+                                    audio_raw.previous_frame[i + audio_raw.number_of_bars / 2];
+                            }
+                            if (p.orientation == ORIENT_SPLIT_H) {
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame,
+                                                             ORIENT_BOTTOM, &p, &audio_raw);
+                                rc = draw_terminal_noncurses(audio_raw.right_bars,
+                                                             audio_raw.right_previous_frame,
+                                                             ORIENT_TOP, &p, &audio_raw);
+                            }
+                            if (p.orientation == ORIENT_SPLIT_V) {
+                                rc = draw_terminal_noncurses(audio_raw.right_bars,
+                                                             audio_raw.right_previous_frame,
+                                                             ORIENT_LEFT, &p, &audio_raw);
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame, ORIENT_RIGHT,
+                                                             &p, &audio_raw);
+                            }
+
+                        } else {
+                            // pure mirrored split, same bars for both sides
+                            if (p.orientation == ORIENT_SPLIT_H) {
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame,
+                                                             ORIENT_BOTTOM, &p, &audio_raw);
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame, ORIENT_TOP,
+                                                             &p, &audio_raw);
+                            } else if (p.orientation == ORIENT_SPLIT_V) {
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame, ORIENT_LEFT,
+                                                             &p, &audio_raw);
+                                rc = draw_terminal_noncurses(audio_raw.bars,
+                                                             audio_raw.previous_frame, ORIENT_RIGHT,
+                                                             &p, &audio_raw);
+                            }
+                        }
                     } else {
-                        rc = draw_terminal_noncurses(
-                            p.inAtty, audio_raw.lines, audio_raw.width, audio_raw.number_of_bars,
-                            p.bar_width, p.bar_spacing, audio_raw.remainder, audio_raw.bars,
-                            audio_raw.previous_frame, p.gradient, p.horizontal_gradient,
-                            p.x_axis_info, p.orientation, 0);
+                        rc = draw_terminal_noncurses(audio_raw.bars, audio_raw.previous_frame,
+                                                     p.orientation, &p, &audio_raw);
                     }
                     break;
                 case OUTPUT_NCURSES:
@@ -590,13 +744,14 @@ Keys:\n\
                                                *audio_raw.dimension_bar, audio_raw.number_of_bars,
                                                p.bar_width, p.bar_spacing, audio_raw.remainder,
                                                audio_raw.bars, audio_raw.previous_frame, p.gradient,
-                                               p.x_axis_info, p.orientation);
+                                               p.xaxis, p.orientation);
                     break;
 #endif
                 case OUTPUT_RAW:
 #ifndef _WIN32
-                    rc = print_raw_out(audio_raw.number_of_bars, p.fp, p.raw_format, p.bit_format,
-                                       p.ascii_range, p.bar_delim, p.frame_delim, audio_raw.bars);
+                    rc = print_raw_out(audio_raw.number_of_bars, audio_raw.fp, p.raw_format,
+                                       p.bit_format, p.ascii_range, p.bar_delim, p.frame_delim,
+                                       audio_raw.bars);
 #else
                     rc =
                         print_raw_out(audio_raw.number_of_bars, p.hFile, p.raw_format, p.bit_format,
@@ -605,8 +760,8 @@ Keys:\n\
                     break;
                 case OUTPUT_NORITAKE:
 #ifndef _WIN32
-                    rc = print_ntk_out(audio_raw.number_of_bars, p.fp, p.bit_format, p.bar_width,
-                                       p.bar_spacing, p.bar_height, audio_raw.bars);
+                    rc = print_ntk_out(audio_raw.number_of_bars, audio_raw.fp, p.bit_format,
+                                       p.bar_width, p.bar_spacing, p.bar_height, audio_raw.bars);
 #else
                     rc = print_ntk_out(audio_raw.number_of_bars, p.hFile, p.bit_format, p.bar_width,
                                        p.bar_spacing, p.bar_height, audio_raw.bars);
@@ -657,6 +812,19 @@ Keys:\n\
 #endif
                 }
 
+                if (p.live_config) {
+                    time_t new_mtime = 0;
+                    long long new_size = 0;
+                    if (get_file_state(configPath, &new_mtime, &new_size) &&
+                        (!has_config_state || new_mtime != config_mtime ||
+                         new_size != config_size)) {
+                        should_reload = 1;
+                        config_mtime = new_mtime;
+                        config_size = new_size;
+                        has_config_state = true;
+                    }
+                }
+
                 if (p.draw_and_quit > 0) {
                     total_frames++;
                     if (total_frames >= p.draw_and_quit) {
@@ -676,6 +844,21 @@ Keys:\n\
             } // resize terminal
             cava_destroy(plan);
             audio_raw_clean(&audio_raw);
+
+#ifndef _WIN32
+            if ((p.output == OUTPUT_RAW || p.output == OUTPUT_NORITAKE) &&
+                strcmp(p.raw_target, "/dev/stdout") != 0) {
+                if (audio_raw.close_output_fd && audio_raw.fp != -1) {
+                    close(audio_raw.fp);
+                    audio_raw.fp = -1;
+                    audio_raw.close_output_fd = false;
+                }
+                if (audio_raw.keepalive_fd != -1) {
+                    close(audio_raw.keepalive_fd);
+                    audio_raw.keepalive_fd = -1;
+                }
+            }
+#endif
         } // reloading config
 
         //**telling audio thread to terminate**//
@@ -683,6 +866,8 @@ Keys:\n\
         audio.terminate = 1;
         pthread_mutex_unlock(&audio.lock);
         pthread_join(p_thread, NULL);
+
+        pthread_mutex_destroy(&audio.lock);
 
         free(audio.source);
         free(audio.cava_in);

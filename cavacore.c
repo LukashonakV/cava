@@ -237,7 +237,7 @@ struct cava_plan *cava_init(int number_of_bars, unsigned int rate, int channels,
                 p->FFTbuffer_upper_cut_off[n - 1] = p->FFTbuffer_lower_cut_off[n] - 1;
 
                 // pushing the spectrum up if the exponential function gets "clumped" in the
-                // bass and caluclating new cut off frequencies
+                // bass and calculating new cut off frequencies
                 if (p->FFTbuffer_lower_cut_off[n] <= p->FFTbuffer_lower_cut_off[n - 1]) {
 
                     // check if there is room for more first
@@ -276,12 +276,12 @@ struct cava_plan *cava_init(int number_of_bars, unsigned int rate, int channels,
     // hard coded eq
     for (int n = 0; n < p->number_of_bars; n++) {
 
-        // the numbers that come out of the FFT are verry high
+        // the numbers that come out of the FFT are very high
         // the EQ is used to "normalize" them by dividing with this very huge number
         p->eq[n] = 1 / pow(2, 28);
 
         // need to boost the EQ for higher frequencies
-        p->eq[n] *= pow(p->cut_off_frequency[n + 1], 1);
+        p->eq[n] *= pow(p->cut_off_frequency[n + 1], 0.85);
 
         if (n < p->bass_cut_off_bar) {
             p->eq[n] /= log2(p->FFTbassbufferSize);
@@ -308,12 +308,12 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
         p->framerate += (double)((p->rate * p->audio_channels * p->frame_skip) / new_samples) / 64;
         p->frame_skip = 1;
         // shifting input buffer
-        for (uint16_t n = p->input_buffer_size - 1; n >= new_samples; n--) {
+        for (int n = p->input_buffer_size - 1; n >= new_samples; n--) {
             p->input_buffer[n] = p->input_buffer[n - new_samples];
         }
 
         // fill the input buffer
-        for (uint16_t n = 0; n < new_samples; n++) {
+        for (int n = 0; n < new_samples; n++) {
             p->input_buffer[new_samples - n - 1] = cava_in[n];
             if (cava_in[n]) {
                 silence = 0;
@@ -324,7 +324,7 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
     }
 
     // fill the bass, mid and treble buffers
-    for (uint16_t n = 0; n < p->FFTbassbufferSize; n++) {
+    for (int n = 0; n < p->FFTbassbufferSize; n++) {
         if (p->audio_channels == 2) {
             p->in_bass_r_raw[n] = p->input_buffer[n * 2];
             p->in_bass_l_raw[n] = p->input_buffer[n * 2 + 1];
@@ -332,7 +332,7 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
             p->in_bass_l_raw[n] = p->input_buffer[n];
         }
     }
-    for (uint16_t n = 0; n < p->FFTbufferSize; n++) {
+    for (int n = 0; n < p->FFTbufferSize; n++) {
         if (p->audio_channels == 2) {
             p->in_r_raw[n] = p->input_buffer[n * 2];
             p->in_l_raw[n] = p->input_buffer[n * 2 + 1];

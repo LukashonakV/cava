@@ -10,6 +10,11 @@ struct audio_raw {
     double *cava_out;
     int *dimension_bar;
     int *dimension_value;
+#ifndef _WIN32
+    int fp;
+    int keepalive_fd;
+    bool close_output_fd;
+#endif
     double userEQ_keys_to_bars_ratio;
     int channels;
     int number_of_bars;
@@ -18,6 +23,8 @@ struct audio_raw {
     int lines;
     int width;
     int remainder;
+    int *right_bars;
+    int *right_previous_frame;
 };
 
 int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct config_params *prm,
