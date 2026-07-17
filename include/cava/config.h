@@ -22,6 +22,7 @@
 enum input_method {
     INPUT_FIFO,
     INPUT_PORTAUDIO,
+    INPUT_COREAUDIO,
     INPUT_PIPEWIRE,
     INPUT_ALSA,
     INPUT_PULSE,

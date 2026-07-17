@@ -15,6 +15,7 @@ is_mac = host_machine.system() == 'darwin'
 is_freebsd = host_machine.system() == 'freebsd'
 
 cc = meson.get_compiler('c')
+objc_available = add_languages('objc', required: false)
 conf = configuration_data()
 c_args = ['-Wall',
           '-Wextra',
@@ -177,6 +178,50 @@ if sndio_dep.found()
    endif
 else
    warning('sndio library is not found. building without sndio')
+endif
+
+### coreaudio
+has_coreaudio = false
+if not get_option('input_coreaudio').disabled()
+   if is_mac
+      coreaudio_dep = dependency('appleframeworks', modules: ['CoreAudio', 'AudioUnit', 'CoreFoundation'], required: false)
+
+      if coreaudio_dep.found() and cc.has_header('CoreAudio/CoreAudio.h') and
+         cc.has_header('AudioUnit/AudioUnit.h')
+         src_files += 'input/coreaudio.c'
+         deps += coreaudio_dep
+         add_project_arguments('-DCOREAUDIO', language: 'c')
+         has_coreaudio = true
+      else
+         warning('No Core Audio headers found building without coreaudio support')
+      endif
+   endif
+else
+   message('do not include support for input from coreaudio')
+endif
+
+### coreaudio taps (macOS 14.2+)
+has_coreaudio_tap = false
+if not get_option('input_coreaudio_tap').disabled()
+   if is_mac and has_coreaudio
+      if cc.has_header('CoreAudio/AudioHardwareTapping.h') and
+         cc.has_header('CoreAudio/CATapDescription.h')
+         if objc_available
+            foundation_dep = dependency('appleframeworks', modules: ['Foundation'], required: false)
+            if foundation_dep.found()
+               src_files += 'input/coreaudio_tap.m'
+               deps += foundation_dep
+               add_project_arguments('-DCOREAUDIO_TAP', language: 'c')
+               has_coreaudio_tap = true
+            endif
+         endif
+      endif
+      if not has_coreaudio_tap
+         warning('No Core Audio tap support found building without coreaudio tap support')
+      endif
+   endif
+else
+   message('do not include support for input from coreaudio process taps')
 endif
 
 ### pipewire

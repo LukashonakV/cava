@@ -8,6 +8,7 @@
 #include "winscap.h"
 #else
 #include "alsa.h"
+#include "coreaudio.h"
 #include "fifo.h"
 #include "jack.h"
 #include "oss.h"
@@ -16,6 +17,9 @@
 #include "pulse.h"
 #include "shmem.h"
 #include "sndio.h"
+#ifdef COREAUDIO_TAP
+#include "coreaudio_tap.h"
+#endif
 #endif // _WIN32
 
 int write_to_cava_input_buffers(int16_t samples, unsigned char *buf, void *data) {
@@ -164,6 +168,24 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
         audio->rate = 44100;
         audio->threadparams = 1;
         ret = &input_portaudio;
+        break;
+#endif
+
+#ifdef COREAUDIO
+    case INPUT_COREAUDIO:
+        audio.format = p.samplebits;
+        audio.rate = p.samplerate;
+        audio.channels = p.channels;
+        audio.threadparams = 1;
+        if (!strcmp(audio.source, "list")) {
+            input_coreaudio((void *)&audio);
+#ifdef COREAUDIO_TAP
+        } else if (coreaudio_tap_source_enabled(audio.source)) {
+            ret = &input_coreaudio_tap;
+#endif
+        } else {
+            ret = &input_coreaudio;
+        }
         break;
 #endif
 
