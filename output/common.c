@@ -431,7 +431,7 @@ int audio_raw_fetch(struct audio_raw *audio_raw, struct config_params *prm, int 
             audio_raw->cava_out[n] = 0.0;
 
         if (prm->output != OUTPUT_SDL_GLSL) {
-          audio_raw->cava_out[n] *= *audio_raw->dimension_value;
+            audio_raw->cava_out[n] *= *audio_raw->dimension_value;
         }
         if (prm->orientation == ORIENT_SPLIT_H || prm->orientation == ORIENT_SPLIT_V) {
             audio_raw->cava_out[n] /= 2;
