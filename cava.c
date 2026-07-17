@@ -872,6 +872,7 @@ Keys:\n\
         free(audio.source);
         free(audio.cava_in);
         cleanup(p.output);
+        free_config(&p);
 
         if (should_quit && signal_received == 0) {
             if (p.zero_test && total_bar_height > 0) {

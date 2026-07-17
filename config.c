@@ -630,7 +630,6 @@ bool validate_config(struct config_params *p, struct error_s *error) {
 }
 
 bool load_config(char configPath[PATH_MAX], struct config_params *p, struct error_s *error) {
-    free_config(p);
 #ifdef _WIN32
     p->hFile = NULL;
 #endif
@@ -638,7 +637,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
     bool result;
     char *cava_config_home = get_cava_config_home(error);
     if (!cava_config_home) {
-        free_config(p);
         return false;
     }
     if (configPath[0] == '\0') {
@@ -669,7 +667,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
             } else {
                 write_errorf(error, "Unable to open or create file '%s', exiting...\n", configPath);
                 free(cava_config_home);
-                free_config(p);
                 return false;
             }
         }
@@ -718,7 +715,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         } else {
             write_errorf(error, "Unable to open file '%s', exiting...\n", configPath);
             free(cava_config_home);
-            free_config(p);
             return false;
         }
     }
