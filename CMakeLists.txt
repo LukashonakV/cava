@@ -42,7 +42,7 @@ elseif(WIN32)
 		cava_win/cava.rc
 	)
 
-	target_compile_definitions(cava PRIVATE SDL SDL_GLSL NDEBUG)
+	target_compile_definitions(cava PRIVATE SDL SDL_GLSL NDEBUG GLEW_STATIC)
 	target_include_directories(cava PRIVATE ${GLEW_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} include)
 	if (USING_VCPKG)
 		find_package(PThreads4W REQUIRED)
