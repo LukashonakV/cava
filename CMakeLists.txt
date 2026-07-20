@@ -54,6 +54,25 @@ elseif(WIN32)
 else()
 	message(STATUS "Building cavacore library and cava executable for Linux/Unix")
 
+	# Fetch version from git tags, falling back to "0.0.0" if unavailable
+	find_package(Git REQUIRED)
+	if(GIT_FOUND)
+		execute_process(
+			COMMAND ${GIT_EXECUTABLE} describe --always --tags --dirty
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			OUTPUT_VARIABLE CAVA_VERSION
+			ERROR_VARIABLE GIT_ERROR
+			RESULT_VARIABLE GIT_RESULT
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+		)
+	    if(NOT GIT_RESULT EQUAL 0)
+			set(CAVA_VERSION "0.0.0")
+		endif()
+	else()
+		set(CAVA_VERSION "0.0.0")
+	endif()
+
+
 	find_package(Threads REQUIRED)
 	find_package(PkgConfig REQUIRED)
 
@@ -105,7 +124,7 @@ else()
 	target_include_directories(cava PRIVATE ${INIPARSER_INCLUDE_DIR})
 	target_compile_definitions(cava PRIVATE
 		PACKAGE=\"cava\"
-		VERSION=\"1.0.0\"
+		VERSION=\"${CAVA_VERSION}\"
 		_POSIX_SOURCE
 		_POSIX_C_SOURCE=200809L
 	)
