@@ -53,6 +53,7 @@ elseif(WIN32)
 	endif()
 else()
 	message(STATUS "Building cavacore library and cava executable for Linux/Unix")
+	message(STATUS "NOTE: The default supported method of building cava executable for Linux/Unix is with autoconf/automake")
 
 	# Fetch version from git tags, falling back to "0.0.0" if unavailable
 	find_package(Git REQUIRED)

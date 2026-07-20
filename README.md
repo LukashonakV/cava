@@ -178,7 +178,9 @@ pacman (msys2/mingw) can also be used
 
 If you have a recommended component installed, but do not wish to use it (perhaps if building a binary on one machine to be used on another), then the corresponding feature can be disabled during configuration (see configure --help for details).
 
-For windows there is a VS solution file in the `cava_win` folder.
+For windows CMake can be used.
+
+CMake can also be used for linux, but autoconf/automake remains the default supported build system.
 
 #### Installing
 
