@@ -157,10 +157,10 @@ jobs:
       - name: run non zero test
         run: ./build/cava -p example_files/test_configs/non_zero_test > /dev/null
       - name: build cavacore test application
-        run: gcc -I include -c -g cavacore_test.c
+        run: gcc -I include -I/opt/homebrew/include -c -g cavacore_test.c
       - name: link cavacore test application
         run: |
-          gcc -I include -o cavacore_test cavacore_test.c -L./build -lcava -lm -lfftw3
+          gcc -I include -I/opt/homebrew/include -o cavacore_test cavacore_test.c -L./build -L/opt/homebrew/lib -lcava -lm -lfftw3
       - name: run cavacore test application
         run: |
           DYLD_LIBRARY_PATH=./build:$DYLD_LIBRARY_PATH ./cavacore_test
