@@ -10,6 +10,30 @@ project(
     ]
 )
 
+git = find_program('git', required: false)
+if git.found()
+    git_describe = run_command(git, 'describe', '--always', '--tags', '--dirty', check: false)
+    if git_describe.returncode() == 0
+        project_version = git_describe.stdout().strip()
+    else
+        project_version = meson.project_version()
+    endif
+
+    git_tag = run_command(git, 'describe', '--tags', '--abbrev=0', check: false)
+    if git_tag.returncode() == 0
+        cava_lib_version = git_tag.stdout().strip()
+        # Strip leading 'v' or 'V' if present
+        if cava_lib_version.startswith('v') or cava_lib_version.startswith('V')
+            cava_lib_version = cava_lib_version.substring(1)
+        endif
+    else
+        cava_lib_version = meson.project_version()
+    endif
+else
+    project_version = meson.project_version()
+    cava_lib_version = meson.project_version()
+endif
+
 is_linux = host_machine.system() == 'linux'
 is_mac = host_machine.system() == 'darwin'
 is_freebsd = host_machine.system() == 'freebsd'
@@ -49,7 +73,11 @@ if is_mac
 endif
 
 add_project_arguments('-DPACKAGE="@0@"'.format(meson.project_name()), language: 'c')
-add_project_arguments('-DVERSION="@0@"'.format(meson.project_version()), language: 'c')
+add_project_arguments('-DVERSION="@0@"'.format(project_version), language: 'c')
+add_project_arguments('-DLIB_VERSION="@0@"'.format(project_version), language: 'c')
+add_project_arguments('-D_POSIX_SOURCE', language: 'c')
+add_project_arguments('-D_POSIX_C_SOURCE=200809L', language: 'c')
+add_project_arguments('-D_XOPEN_SOURCE_EXTENDED', language: 'c')
 
 if not get_option('debug')
    add_project_arguments('-DNDEBUG', language: 'c')
@@ -305,27 +333,29 @@ if get_option('cava_font') and is_exe
       if vtfontcvt_prog.found() and psf2bdf_prog.found()
          cava_bdf = configure_file(
             command: [
-               psf2bdf, '--fontname="-gnu-cava-medium-r-normal--16-160-75-75-c-80-iso10646-1"',
-               '@INPUT@ @OUTPUT@'],
+               psf2bdf, '--fontname=-gnu-cava-medium-r-normal--16-160-75-75-c-80-iso10646-1',
+               '@INPUT@', '@OUTPUT@'],
             input: 'cava.psf',
             output: 'cava.bdf'
          )
          cava_fnt = configure_file(
             command: [
-               vtfontcvt, '-o', '@OUTPUT@ @INPUT@'],
-            input: 'cava.bdf',
+               vtfontcvt, '-o', '@OUTPUT@', '@INPUT@'],
+            input: cava_bdf,
             output: 'cava.fnt'
          )
 
          have_font = true
          font_dir = join_paths(get_option('prefix'), 'share/cava')
-         font_file = 'cava.fnt'
+         font_file_name = 'cava.fnt'
+         font_file = cava_fnt
       else
          warning('Font conversion tool missing. Building without cava font supported!')
       endif
    else
       have_font = true
       font_dir = join_paths(get_option('prefix'), 'share/consolefonts')
+      font_file_name = 'cava.psf'
       font_file = 'cava.psf'
    endif
 endif
@@ -333,15 +363,14 @@ endif
 if have_font
    message('Cava font support')
    add_project_arguments('-DFONTDIR="@0@"'.format(font_dir), language: 'c')
-   add_project_arguments('-DFONTFILE="@0@"'.format(font_file), language: 'c')
+   add_project_arguments('-DFONTFILE="@0@"'.format(font_file_name), language: 'c')
    add_project_arguments('-DCAVAFONT', language: 'c')
 
    install_data(font_file,
       install_dir: font_dir)
 endif
 
-project_version = meson.project_version()
-major_version  = (project_version.split('.'))[0]
+major_version  = (cava_lib_version.split('.'))[0]
 
 cava_lib = shared_library('cava',
                           sources: src_files,
@@ -349,7 +378,7 @@ cava_lib = shared_library('cava',
                           include_directories: inc_dirs,
                           c_args: c_args,
                           install: true,
-                          version: project_version,
+                          version: cava_lib_version,
                           soversion: major_version)
 
 cava_dep = declare_dependency(link_with: cava_lib,
@@ -372,7 +401,7 @@ install_headers(h_O_files, subdir: 'cava/output')
 pkg = import('pkgconfig')
 pkg.generate(libraries: cava_lib,
              subdirs: ['cava', 'cava/input', 'cava/output'],
-             version: meson.project_version(),
+             version: project_version,
              name: 'libcava',
              filebase: 'libcava',
              description: 'A cava library')
