@@ -469,7 +469,7 @@ Keys:\n\
 
             // check if drawing loop is faster than audio loop.
             int high_framerate = 0;
-            if (samples_per_frame < audio.input_buffer_size / audio.channels) {
+            if (samples_per_frame < audio.input_buffer_size / (int)audio.channels) {
                 high_framerate = 1;
             }
 
