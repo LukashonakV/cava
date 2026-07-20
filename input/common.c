@@ -178,7 +178,7 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
         audio->channels = prm->channels;
         audio->threadparams = 1;
         if (!strcmp(audio->source, "list")) {
-            ret = &input_coreaudio((void *)&audio);
+            ret = &input_coreaudio;
 #ifdef COREAUDIO_TAP
         } else if (coreaudio_tap_source_enabled(audio->source)) {
             ret = &input_coreaudio_tap;
