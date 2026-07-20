@@ -1,6 +1,6 @@
 #ifdef _WIN32
 #define PACKAGE "cava"
-#define VERSION "0.10.7"
+#define VERSION "1.0.0"
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif // _WIN32
 
@@ -429,25 +429,24 @@ Keys:\n\
 
             bool resizeTerminal = false;
 
-            int effective_framerate = p.framerate;
-            if (effective_framerate <= 0)
-                effective_framerate = 60;
-
-            long long frame_time_ns = (long long)(1000000000.0 / (double)effective_framerate);
+            long long frame_time_ns = (long long)(1000000000.0 / (double)p.framerate);
             if (frame_time_ns < 1)
                 frame_time_ns = 1;
-
+            struct timespec sleep_timer = {.tv_sec = frame_time_ns / 1000000000,
+                                           .tv_nsec = frame_time_ns % 1000000000};
             int frame_time_msec = (int)(frame_time_ns / 1000000LL);
             if (frame_time_msec < 1)
                 frame_time_msec = 1;
 
-            struct timespec framerate_timer = {.tv_sec = frame_time_ns / 1000000000LL,
-                                               .tv_nsec = frame_time_ns % 1000000000LL};
 #ifdef _WIN32
             LARGE_INTEGER frequency; // ticks per second
             LARGE_INTEGER t1, t2;    // ticks
             double elapsedTime;
             QueryPerformanceFrequency(&frequency);
+#else
+            struct timespec t1, t2, t3;
+            double elapsedTimens;
+            double wakeupTimens = 0.0;
 #endif // _WIN32
 
             int sleep_counter = 0;
@@ -458,7 +457,32 @@ Keys:\n\
 
             int total_frames = 0;
 
+            // audio samples to use per visual frame.
+            int samples_per_frame = audio.rate / p.framerate;
+
+            // on sdl we use SDL_delay instead of our own sleep and it is in whole milliseconds, so
+            // we need to adjust a little
+            if (p.output == OUTPUT_SDL_GLSL || p.output == OUTPUT_SDL) {
+                float actual_framerate = 1000.0 / (float)frame_time_msec;
+                samples_per_frame = audio.rate / actual_framerate;
+            }
+
+            // check if drawing loop is faster than audio loop.
+            int high_framerate = 0;
+            if (samples_per_frame < audio.input_buffer_size / (int)audio.channels) {
+                high_framerate = 1;
+            }
+
+            pthread_mutex_lock(&audio.lock);
+            audio.samples_counter = 0;
+            pthread_mutex_unlock(&audio.lock);
+
             while (!resizeTerminal) {
+#ifdef _WIN32
+                QueryPerformanceCounter(&t1);
+#else
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+#endif
 
 // general: keyboard controls
 #ifdef NCURSES
@@ -583,7 +607,7 @@ Keys:\n\
                 // process: check if input is present
                 silence = true;
 
-                for (int n = 0; n < audio.input_buffer_size * 4; n++) {
+                for (int n = 0; n < audio.samples_counter; n++) {
                     if (audio.cava_in[n]) {
                         silence = false;
                         break;
@@ -625,8 +649,30 @@ Keys:\n\
 
                 // process: execute cava
                 pthread_mutex_lock(&audio.lock);
+
+                int samples_to_use = 0;
+
+                if (!high_framerate) {
+                    // we dont need buffers and use all available samples.
+                    samples_to_use = audio.samples_counter;
+                } else {
+                    // we are running with higher framerates and need buffers!
+                    // only use the calculated samples per frame
+                    samples_to_use = samples_per_frame * audio.channels;
+
+                    // buffer underrun! only use what we have
+                    if (audio.samples_counter < samples_to_use) {
+                        samples_to_use = audio.samples_counter;
+                    }
+
+                    // buffer overflow! we have more samples than we need, just use them.
+                    if (audio.samples_counter > audio.input_buffer_size + samples_to_use) {
+                        samples_to_use = audio.samples_counter - audio.input_buffer_size;
+                    }
+                }
+
                 if (p.waveform) {
-                    for (int n = 0; n < audio.samples_counter; n++) {
+                    for (int n = 0; n < samples_to_use; n++) {
 
                         for (int i = audio_raw.number_of_bars - 1; i > 0; i--) {
                             audio_raw.cava_out[i] = audio_raw.cava_out[i - 1];
@@ -640,11 +686,18 @@ Keys:\n\
                         }
                     }
                 } else {
-                    cava_execute(audio.cava_in, audio.samples_counter, audio_raw.cava_out, plan);
+                    cava_execute(audio.cava_in, samples_to_use, audio_raw.cava_out, plan);
                 }
-                if (audio.samples_counter > 0) {
-                    audio.samples_counter = 0;
+
+                audio.samples_counter -= samples_to_use;
+
+                if (audio.samples_counter != 0) {
+                    // shift the input buffer
+                    for (int n = 0; n < audio.samples_counter; n++) {
+                        audio.cava_in[n] = audio.cava_in[n + samples_to_use];
+                    }
                 }
+
                 pthread_mutex_unlock(&audio.lock);
 #ifndef SDL_GLSL
                 // Do transformation under raw data
@@ -662,9 +715,6 @@ Keys:\n\
                     printf("\033[2026l\033\\");
                 }
                 int rc = 0;
-#ifdef _WIN32
-                QueryPerformanceCounter(&t1);
-#endif
                 switch (p.output) {
 #ifdef SDL
                 case OUTPUT_SDL:
@@ -687,7 +737,8 @@ Keys:\n\
                         // in split horizontal mode we need to draw two times
                         // once for bottom and once for top
                         // ORIENT_BOTTOM will be the top bars and ORIENT_TOP the bottom bars
-                        // since bottom hear means from mid upwards and top is from mid downwards
+                        // since bottom hear means from mid upwards and top is from mid
+                        // downwards
 
                         if (p.split_stereo) {
                             // in horizontal stereo mode we need to split the bars array in half
@@ -793,25 +844,6 @@ Keys:\n\
                            audio_raw.number_of_bars * sizeof(float));
                 }
 
-#ifdef _WIN32
-                QueryPerformanceCounter(&t2);
-                elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
-                int fps_sync_time = frame_time_msec;
-                if (elapsedTime < 1.0)
-                    fps_sync_time = frame_time_msec;
-                else if ((int)elapsedTime > frame_time_msec)
-                    fps_sync_time = 0;
-                else
-                    fps_sync_time = (frame_time_msec - (int)elapsedTime) / 2;
-#endif
-                if (p.output != OUTPUT_SDL && p.output != OUTPUT_SDL_GLSL) {
-#ifdef _WIN32
-                    Sleep(fps_sync_time);
-#else
-                    nanosleep(&framerate_timer, NULL);
-#endif
-                }
-
                 if (p.live_config) {
                     time_t new_mtime = 0;
                     long long new_size = 0;
@@ -840,6 +872,42 @@ Keys:\n\
                         should_quit = true;
                         break;
                     }
+                }
+#ifdef _WIN32
+                QueryPerformanceCounter(&t2);
+                elapsedTime = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+                int fps_sync_time = frame_time_msec;
+                if (elapsedTime < 1.0)
+                    fps_sync_time = frame_time_msec;
+                else if ((int)elapsedTime > frame_time_msec)
+                    fps_sync_time = 0;
+                else
+                    fps_sync_time = (frame_time_msec - (int)elapsedTime) / 2;
+#endif
+                if (p.output != OUTPUT_SDL && p.output != OUTPUT_SDL_GLSL) {
+#ifdef _WIN32
+                    Sleep(fps_sync_time);
+#else
+                    clock_gettime(CLOCK_MONOTONIC, &t2);
+                    elapsedTimens =
+                        (t2.tv_sec - t1.tv_sec) * 1000000000.0 + (t2.tv_nsec - t1.tv_nsec);
+
+                    int sleep_time_ns = frame_time_ns - (int)elapsedTimens - (int)wakeupTimens;
+
+                    if (sleep_time_ns > 1) {
+
+                        sleep_timer.tv_sec = sleep_time_ns / 1000000000;
+                        sleep_timer.tv_nsec = sleep_time_ns % 1000000000;
+                        nanosleep(&sleep_timer, NULL);
+                        clock_gettime(CLOCK_MONOTONIC, &t3);
+                        double actualSleeptime =
+                            (t3.tv_sec - t2.tv_sec) * 1000000000.0 + (t3.tv_nsec - t2.tv_nsec);
+                        wakeupTimens = actualSleeptime - sleep_time_ns;
+                    } else {
+                        wakeupTimens = 0;
+                    }
+
+#endif
                 }
             } // resize terminal
             cava_destroy(plan);
@@ -872,6 +940,7 @@ Keys:\n\
         free(audio.source);
         free(audio.cava_in);
         cleanup(p.output);
+        free_config(&p);
 
         if (should_quit && signal_received == 0) {
             if (p.zero_test && total_bar_height > 0) {

@@ -1,8 +1,5 @@
-# This is only for the cavacore lib, see CAVACORE.md for details
-# to build cava don't use this, use the automake stuff
-
 cmake_minimum_required(VERSION 3.13.0)
-project(cavacore)
+project(cava)
 if (ANDROID)
 	add_library(cavacore SHARED cavacore.c)
 	if (NOT DEFINED FFTW_DIR)
@@ -21,10 +18,14 @@ if (ANDROID)
 	target_link_directories(cavacore PRIVATE "${FFTW_DIR}/obj/local/${CMAKE_ANDROID_ARCH_ABI}/")
 	target_link_libraries(cavacore fftw3)
 elseif(WIN32)
-	find_package(FFTW3)
-	find_package(GLEW)
-	find_package(SDL2)
-	find_package(Threads)
+	find_package(FFTW3 CONFIG REQUIRED)
+	find_package(GLEW CONFIG REQUIRED)
+	find_package(SDL2 CONFIG REQUIRED)
+	if (USING_VCPKG)
+		find_package(PThreads4W REQUIRED)
+	else()
+		find_package(Threads REQUIRED)
+	endif()
 
 	add_executable(cava
 		cava.c
@@ -38,41 +39,162 @@ elseif(WIN32)
 		output/terminal_noncurses.c
 		output/raw.c
 		output/noritake.c
-		cava_win/cava/cava.rc
+		cava_win/cava.rc
 	)
 
-	target_compile_definitions(cava PRIVATE SDL SDL_GSL NDEBUG)
+    target_compile_definitions(cava PRIVATE SDL SDL_GLSL NDEBUG GLEW_STATIC)
 	target_include_directories(cava PRIVATE ${GLEW_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} include)
-	target_link_libraries(cava PRIVATE pthread shlwapi fftw3 GLEW::GLEW SDL2::SDL2)
+	if (USING_VCPKG)
+		find_package(PThreads4W REQUIRED)
+		target_link_libraries(cava PRIVATE PThreads4W::PThreads4W shlwapi FFTW3::fftw3 GLEW::GLEW SDL2::SDL2)
+	else()
+		target_link_libraries(cava PRIVATE Threads::Threads shlwapi fftw3 GLEW::GLEW SDL2::SDL2)
+		find_package(Threads REQUIRED)
+	endif()
 else()
-	add_library(cavacore STATIC)
-	target_include_directories(cavacore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-	target_sources(cavacore PRIVATE cavacore.c)
-	if(INPUT_PIPEWIRE)
-		target_compile_definitions(cavacore PRIVATE PIPEWIRE)
-		set(AUDIO_INPUT ON)
-		target_sources(cavacore PRIVATE input/pipewire.c)
-		find_package(PkgConfig REQUIRED)
-		pkg_search_module(PIPEWIRE QUIET libpipewire-0.3)
-		pkg_search_module(SPA QUIET libspa-0.2)
-		if (PIPEWIRE_FOUND AND SPA_FOUND)
-			message(STATUS "Found PipeWire version ${PIPEWIRE_VERSION}")
+	message(STATUS "Building cavacore library and cava executable for Linux/Unix")
+	message(STATUS "NOTE: The default supported method of building cava executable for Linux/Unix is with autoconf/automake")
 
-			# Link libraries and include directories to your target
-			target_link_libraries(cavacore PRIVATE ${PIPEWIRE_LIBRARIES} ${SPA_LIBRARIES})
-			target_include_directories(cavacore PRIVATE ${PIPEWIRE_INCLUDE_DIRS} ${SPA_INCLUDE_DIRS})
-			target_compile_options(cavacore PRIVATE ${PIPEWIRE_CFLAGS} ${SPA_CFLAGS})
-		else()
-			message(FATAL_ERROR "PipeWire or SPA libraries not found. Please ensure they are installed and pkg-config can find them.")
+	# Fetch version from git tags, falling back to "0.0.0" if unavailable
+	find_package(Git REQUIRED)
+	if(GIT_FOUND)
+		execute_process(
+			COMMAND ${GIT_EXECUTABLE} describe --always --tags --dirty
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			OUTPUT_VARIABLE CAVA_VERSION
+			ERROR_VARIABLE GIT_ERROR
+			RESULT_VARIABLE GIT_RESULT
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+		)
+	    if(NOT GIT_RESULT EQUAL 0)
+			set(CAVA_VERSION "0.0.0")
+		endif()
+	else()
+		set(CAVA_VERSION "0.0.0")
+	endif()
+
+
+	find_package(Threads REQUIRED)
+	find_package(PkgConfig REQUIRED)
+
+	set(CURSES_NEED_NCURSESW TRUE)
+	find_package(Curses)
+	pkg_search_module(FFTW3 REQUIRED fftw3)
+
+	pkg_search_module(SDL2 QUIET sdl2)
+	find_package(OpenGL QUIET)
+
+	# ---------------------------------------------------------
+	# TARGET 1: cavacore lib
+	# ---------------------------------------------------------
+	add_library(cavacore STATIC)
+	target_sources(cavacore PRIVATE cavacore.c)
+
+	target_include_directories(cavacore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+	target_link_libraries(cavacore PRIVATE m ${FFTW3_LIBRARIES})
+	target_include_directories(cavacore PRIVATE ${FFTW3_INCLUDE_DIRS})
+
+	# ---------------------------------------------------------
+	# TARGET 2: cava executable
+	# ---------------------------------------------------------
+
+	find_path(INIPARSER_INCLUDE_DIR
+		NAMES iniparser.h
+		PATH_SUFFIXES iniparser
+	)
+    find_library(INIPARSER_LIBRARY
+		NAMES iniparser
+	)
+    if(NOT INIPARSER_INCLUDE_DIR OR NOT INIPARSER_LIBRARY)
+		message(FATAL_ERROR "Could not find libiniparser! Please install libiniparser-dev.")
+	endif()
+
+	add_executable(cava
+		cava.c
+		config.c
+		input/common.c
+		input/fifo.c
+		input/shmem.c
+		output/terminal_noncurses.c
+		output/raw.c
+		output/noritake.c
+	)
+
+    target_link_libraries(cava PRIVATE cavacore Threads::Threads iniparser)
+	target_include_directories(cava PRIVATE ${INIPARSER_INCLUDE_DIR})
+	target_compile_definitions(cava PRIVATE
+		PACKAGE=\"cava\"
+		VERSION=\"${CAVA_VERSION}\"
+		_POSIX_SOURCE
+		_POSIX_C_SOURCE=200809L
+	)
+
+    # --- SDL2 & OpenGL ---
+	if(SDL2_FOUND)
+		message(STATUS "Found SDL2")
+		target_compile_definitions(cava PRIVATE SDL)
+		target_sources(cava PRIVATE output/sdl_cava.c)
+		target_link_libraries(cava PRIVATE ${SDL2_LIBRARIES})
+		target_include_directories(cava PRIVATE ${SDL2_INCLUDE_DIRS})
+
+		if(OPENGL_FOUND)
+			message(STATUS "Found OpenGL")
+			target_compile_definitions(cava PRIVATE SDL_GLSL)
+			target_sources(cava PRIVATE output/sdl_glsl.c)
+			target_link_libraries(cava PRIVATE OpenGL::GL)
 		endif()
 	endif()
-	if(INPUT_ALSA)
-		target_compile_definitions(cavacore PRIVATE ALSA)
-		set(AUDIO_INPUT ON)
-		target_sources(cavacore PRIVATE input/alsa.c)
+
+	# --- Ncurses ---
+	if(CURSES_FOUND)
+		target_compile_definitions(cava PRIVATE NCURSES _XOPEN_SOURCE_EXTENDED)
+		target_sources(cava PRIVATE
+			output/terminal_ncurses.c
+			output/terminal_bcircle.c
+		)
+	    target_link_libraries(cava PRIVATE ncursesw)
+		target_include_directories(cava PRIVATE ${CURSES_INCLUDE_DIR})
 	endif()
+
+	# --- Audio Inputs Auto-Detection ---
+	set(AUDIO_INPUT OFF)
+
+	pkg_search_module(PIPEWIRE QUIET libpipewire-0.3)
+	pkg_search_module(SPA QUIET libspa-0.2)
+	if (PIPEWIRE_FOUND AND SPA_FOUND)
+		message(STATUS "Found PipeWire version ${PIPEWIRE_VERSION}")
+		target_compile_definitions(cava PRIVATE PIPEWIRE)
+		set(AUDIO_INPUT ON)
+		target_sources(cava PRIVATE input/pipewire.c)
+		target_link_libraries(cava PRIVATE ${PIPEWIRE_LIBRARIES} ${SPA_LIBRARIES})
+		target_include_directories(cava PRIVATE ${PIPEWIRE_INCLUDE_DIRS} ${SPA_INCLUDE_DIRS})
+		target_compile_options(cava PRIVATE ${PIPEWIRE_CFLAGS} ${SPA_CFLAGS})
+	endif()
+
+	pkg_search_module(ALSA QUIET alsa)
+	if(ALSA_FOUND)
+		message(STATUS "Found ALSA")
+		target_compile_definitions(cava PRIVATE ALSA)
+		set(AUDIO_INPUT ON)
+		target_sources(cava PRIVATE input/alsa.c)
+		target_link_libraries(cava PRIVATE ${ALSA_LIBRARIES})
+		target_include_directories(cava PRIVATE ${ALSA_INCLUDE_DIRS})
+	endif()
+
+	pkg_search_module(PULSE QUIET libpulse-simple)
+	if(PULSE_FOUND)
+		message(STATUS "Found PulseAudio")
+		target_compile_definitions(cava PRIVATE PULSE)
+		set(AUDIO_INPUT ON)
+		target_sources(cava PRIVATE input/pulse.c)
+		target_link_libraries(cava PRIVATE ${PULSE_LIBRARIES})
+		target_include_directories(cava PRIVATE ${PULSE_INCLUDE_DIRS})
+	endif()
+
 	if(AUDIO_INPUT)
-		target_compile_definitions(cavacore PRIVATE AUDIO_INPUT)
-		target_sources(cavacore PRIVATE input/common.c)
+		target_compile_definitions(cava PRIVATE AUDIO_INPUT)
+	else()
+		message(WARNING "No audio system (Pulse/ALSA/Pipewire) was found! The program will not hear music.")
 	endif()
 endif()

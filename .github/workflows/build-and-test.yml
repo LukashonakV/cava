@@ -139,6 +139,32 @@ jobs:
       - name: run non zero test
         run: ./cava -p example_files/test_configs/non_zero_test > /dev/null
 
+  build-macos-meson:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          brew install fftw libtool automake portaudio iniparser sdl2 meson ninja
+          ln -s /usr/local/bin/glibtoolize /usr/local/bin/libtoolize
+      - name: Run meson setup
+        run: |
+          LDFLAGS="-L/opt/homebrew/lib" \
+          CPPFLAGS="-I/opt/homebrew/include" \
+          meson setup -Dcpp_std=c++20 -Dbuild_target=all build
+      - name: Run ninja
+        run: ninja -C build
+      - name: run non zero test
+        run: ./build/cava -p example_files/test_configs/non_zero_test > /dev/null
+      - name: build cavacore test application
+        run: gcc -I include -I/opt/homebrew/include -c -g cavacore_test.c
+      - name: link cavacore test application
+        run: |
+          gcc -I include -I/opt/homebrew/include -o cavacore_test cavacore_test.c -L./build -L/opt/homebrew/lib -lcava -lm -lfftw3
+      - name: run cavacore test application
+        run: |
+          DYLD_LIBRARY_PATH=./build:$DYLD_LIBRARY_PATH ./cavacore_test
+
   build-windows:
     runs-on: windows-latest
     steps:
@@ -152,14 +178,13 @@ jobs:
       - name: Set VCPKG_ROOT
         run: |
           echo "VCPKG_ROOT=$(pwd)\vcpkg" >> $env:GITHUB_ENV
-      - name: Install vcpkg dependencies
+      - name: configure cmake with vcpkg
         run: |
-          cd cava_win
-          & $env:VCPKG_ROOT\\vcpkg install
-          cd ..
-      - name: Run msbuild with vcpkg
+          cmake --preset vcpkg
+      - name: build
         run: |
-          msbuild /p:Configuration=Release /p:VcpkgEnabled=true /p:VcpkgRoot=$env:VCPKG_ROOT /p:VcpkgTriplet=x64-windows cava_win\cava_win.sln
+          cd build
+          cmake --build . --config Release
       - name: Install WiX Toolset
         run: dotnet tool install --global wix --version 6.0.2
       - name: Install WiX extensions
@@ -168,8 +193,8 @@ jobs:
           wix extension add WixToolset.Util.wixext/6.0.2
       - name: Build MSI installer
         run: |
-          $versionLine = Select-String -Path cava_win\setup.iss -Pattern '^AppVersion=' | Select-Object -First 1
-          $cavaVersion = $versionLine.Line.Split('=')[1].Trim()
+          $versionLine = Select-String -Path autogen.sh -Pattern 'echo\s+([\d.]+)\s*>version'
+          $cavaVersion = $versionLine.Matches[0].Groups[1].Value
           wix build -arch x64 cava_win\cava.wxs -d CavaVersion=$cavaVersion -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -o cava_win\cava_win_x64_install.msi
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4

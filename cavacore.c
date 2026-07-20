@@ -168,7 +168,7 @@ struct cava_plan *cava_init(int number_of_bars, unsigned int rate, int channels,
 
     memset(p->input_buffer, 0, sizeof(double) * p->input_buffer_size);
 
-    memset(p->cava_fall, 0, sizeof(int) * number_of_bars * channels);
+    memset(p->cava_fall, 0, sizeof(double) * number_of_bars * channels);
     memset(p->cava_mem, 0, sizeof(double) * number_of_bars * channels);
     memset(p->cava_peak, 0, sizeof(double) * number_of_bars * channels);
     memset(p->prev_cava_out, 0, sizeof(double) * number_of_bars * channels);
@@ -304,9 +304,14 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
 
     int silence = 1;
     if (new_samples > 0) {
-        p->framerate -= p->framerate / 64;
-        p->framerate += (double)((p->rate * p->audio_channels * p->frame_skip) / new_samples) / 64;
+        // process: approximate actual framerate. This will be off by +10% at 60 fps, but should be
+        // good enough for the autosens and smoothing algorithms to be adjusted accordingly if
+        // framerate is a lot more or less.
+        p->framerate -= p->framerate / 64.0;
+        p->framerate +=
+            (double)(p->rate * p->frame_skip) / (new_samples / p->audio_channels) / 64.0;
         p->frame_skip = 1;
+
         // shifting input buffer
         for (int n = p->input_buffer_size - 1; n >= new_samples; n--) {
             p->input_buffer[n] = p->input_buffer[n - new_samples];
@@ -401,10 +406,10 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
     }
     // process [smoothing]
     int overshoot = 0;
-    double gravity_mod = pow((60 / p->framerate), 2.5) * 1.54 / p->noise_reduction;
 
-    if (gravity_mod < 1)
-        gravity_mod = 1;
+    double framerate_mod = 66 / p->framerate;
+    double gravity_mod = pow((framerate_mod), 2.5) * 2 / p->noise_reduction;
+    double integral_mod = pow((framerate_mod), 0.1);
 
     for (int n = 0; n < p->number_of_bars * p->audio_channels; n++) {
 
@@ -424,7 +429,8 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
         p->prev_cava_out[n] = cava_out[n];
 
         // process [smoothing]: integral
-        cava_out[n] = p->cava_mem[n] * p->noise_reduction + cava_out[n];
+        cava_out[n] = p->cava_mem[n] * p->noise_reduction / integral_mod + cava_out[n];
+
         p->cava_mem[n] = cava_out[n];
         if (p->autosens) {
             // check if we overshoot target height
@@ -438,13 +444,13 @@ void cava_execute(double *cava_in, int new_samples, double *cava_out, struct cav
     // calculating automatic sense adjustment
     if (p->autosens) {
         if (overshoot) {
-            p->sens = p->sens * 0.98;
+            p->sens = p->sens * (1 - (0.02 * framerate_mod));
             p->sens_init = 0;
         } else {
             if (!silence) {
-                p->sens = p->sens * 1.001;
+                p->sens = p->sens * (1 + (0.001 * framerate_mod * p->autosens));
                 if (p->sens_init)
-                    p->sens = p->sens * 1.1;
+                    p->sens = p->sens * (1 + (0.1 * framerate_mod));
             }
         }
     }

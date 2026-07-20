@@ -31,9 +31,8 @@ CLEANFILES += libcava.pc
 lib_LTLIBRARIES = libcava.la
 
 AM_LIBTOOL_VERSION = $(AM_LIBTOOL_CURRENT):$(AM_LIBTOOL_REVISION):$(AM_LIBTOOL_RELEASE)
-AM_LIBTOOL_REL = $(AM_LIBTOOL_RELEASE):$(AM_LIBTOOL_REVISION):$(AM_LIBTOOL_CURRENT)
 
-libcava_la_LDFLAGS = -version-info $(AM_LIBTOOL_REL)
+libcava_la_LDFLAGS = -version-info $(AM_LIBTOOL_VERSION)
 
 bin_PROGRAMS = cava
 
@@ -120,6 +119,14 @@ endif
 
 if PORTAUDIO
     libcava_la_SOURCES += input/portaudio.c input/portaudio.h
+endif
+
+if COREAUDIO
+    cava_SOURCES += input/coreaudio.c input/coreaudio.h
+endif
+
+if COREAUDIO_TAP
+    cava_SOURCES += input/coreaudio_tap.m input/coreaudio_tap.h
 endif
 
 if PIPEWIRE

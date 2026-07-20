@@ -111,21 +111,25 @@ const char *default_theme_name[NUMBER_OF_THEMES] = {"solarized_dark", "tricolor"
 double smoothDef[5] = {1, 1, 1, 1, 1};
 
 enum input_method default_methods[] = {
-    INPUT_FIFO,  INPUT_PORTAUDIO, INPUT_ALSA,    INPUT_SNDIO, INPUT_JACK,
-    INPUT_PULSE, INPUT_PIPEWIRE,  INPUT_WINSCAP, INPUT_OSS,
+    INPUT_FIFO,      INPUT_PORTAUDIO, INPUT_ALSA,    INPUT_SNDIO, INPUT_JACK,
+#ifdef __APPLE__
+    INPUT_COREAUDIO,
+#endif
+    INPUT_PULSE,     INPUT_PIPEWIRE,  INPUT_WINSCAP, INPUT_OSS,
 };
 
 char *outputMethod, *orientation, *channels, *xaxisScale, *monoOption, *fragmentShader,
     *vertexShader, *blendDirection;
 
 const char *input_method_names[] = {
-    "fifo", "portaudio", "pipewire", "alsa", "pulse", "sndio", "oss", "jack", "shmem", "winscap",
+    "fifo",  "portaudio", "coreaudio", "pipewire", "alsa",    "pulse",
+    "sndio", "oss",       "jack",      "shmem",    "winscap",
 };
 
 const bool has_input_method[] = {
     HAS_FIFO, /** Always have at least FIFO and shmem input. */
-    HAS_PORTAUDIO, HAS_PIPEWIRE, HAS_ALSA,  HAS_PULSE,   HAS_SNDIO,
-    HAS_OSS,       HAS_JACK,     HAS_SHMEM, HAS_WINSCAP,
+    HAS_PORTAUDIO, HAS_COREAUDIO, HAS_PIPEWIRE, HAS_ALSA,  HAS_PULSE,
+    HAS_SNDIO,     HAS_OSS,       HAS_JACK,     HAS_SHMEM, HAS_WINSCAP,
 };
 
 enum input_method input_method_by_name(const char *str) {
@@ -557,28 +561,14 @@ bool validate_config(struct config_params *p, struct error_s *error) {
         p->bar_width = 1;
 
     // validate: framerate
-    if (p->framerate < 0) {
-        write_errorf(error, "framerate can't be negative!\n");
+    if (p->framerate < 1) {
+        write_errorf(error, "framerate can't be less than 1!\n");
         return false;
     }
 
     // validate: colors
     if (!validate_colors(p, error)) {
         return false;
-    }
-
-    // validate: gravity
-    p->gravity = p->gravity / 100;
-    if (p->gravity < 0) {
-        p->gravity = 0;
-    }
-
-    // validate: integral
-    p->integral = p->integral / 100;
-    if (p->integral < 0) {
-        p->integral = 0;
-    } else if (p->integral > 1) {
-        p->integral = 1;
     }
 
     // validate: noise_reduction
@@ -630,7 +620,6 @@ bool validate_config(struct config_params *p, struct error_s *error) {
 }
 
 bool load_config(char configPath[PATH_MAX], struct config_params *p, struct error_s *error) {
-    free_config(p);
 #ifdef _WIN32
     p->hFile = NULL;
 #endif
@@ -638,7 +627,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
     bool result;
     char *cava_config_home = get_cava_config_home(error);
     if (!cava_config_home) {
-        free_config(p);
         return false;
     }
     if (configPath[0] == '\0') {
@@ -669,7 +657,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
             } else {
                 write_errorf(error, "Unable to open or create file '%s', exiting...\n", configPath);
                 free(cava_config_home);
-                free_config(p);
                 return false;
             }
         }
@@ -718,7 +705,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         } else {
             write_errorf(error, "Unable to open file '%s', exiting...\n", configPath);
             free(cava_config_home);
-            free_config(p);
             return false;
         }
     }
@@ -806,8 +792,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         iniparser_freedict(ini);
         ini = iniparser_load(themeFile);
     }
-    p->color = strdup(iniparser_getstring(ini, "color:foreground", "default"));
-    p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 #else
     outputMethod = malloc(sizeof(char) * 32);
     p->color = malloc(sizeof(char) * 14);
@@ -833,8 +817,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         free_config(p);
         return false;
     }
-    GetPrivateProfileString("color", "foreground", "default", p->color, 9, themeFile);
-    GetPrivateProfileString("color", "background", "default", p->bcolor, 9, themeFile);
 #endif
 
     result = load_colors(themeFile, p, error);
@@ -864,9 +846,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
     xaxisScale = strdup(iniparser_getstring(ini, "output:xaxis", "none"));
     p->monstercat = iniparser_getdouble(ini, "smoothing:monstercat", 0);
     p->waves = iniparser_getint(ini, "smoothing:waves", 0);
-    p->integral = iniparser_getdouble(ini, "smoothing:integral", 77);
-    p->gravity = iniparser_getdouble(ini, "smoothing:gravity", 100);
-    p->ignore = iniparser_getdouble(ini, "smoothing:ignore", 0);
     p->noise_reduction = iniparser_getdouble(ini, "smoothing:noise_reduction", 77);
 
     p->fixedbars = iniparser_getint(ini, "general:bars", 0);
@@ -1032,6 +1011,11 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         p->audio_source = strdup(iniparser_getstring(ini, "input:source", "auto"));
         break;
 #endif
+#ifdef COREAUDIO
+    case INPUT_COREAUDIO:
+        p->audio_source = strdup(iniparser_getstring(ini, "input:source", "auto"));
+        break;
+#endif
     case INPUT_MAX: {
         char supported_methods[255] = "";
         for (int i = 0; i < INPUT_MAX; i++) {
@@ -1078,7 +1062,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
     p->framerate = GetPrivateProfileInt("general", "framerate", 60, configPath);
     p->sens = GetPrivateProfileInt("general", "sensitivity", 100, configPath);
     p->autosens = GetPrivateProfileInt("general", "autosens", 1, configPath);
-    p->overshoot = GetPrivateProfileInt("general", "overshoot", 20, configPath);
     p->lower_cut_off = GetPrivateProfileInt("general", "lower_cutoff_freq", 50, configPath);
     p->upper_cut_off = GetPrivateProfileInt("general", "higher_cutoff_freq", 10000, configPath);
     p->sleep_timer = GetPrivateProfileInt("general", "sleep_timer", 0, configPath);
@@ -1202,6 +1185,8 @@ bool load_colors(char *themeFile, struct config_params *p, struct error_s *error
 #ifndef _WIN32
     dictionary *ini;
     ini = iniparser_load(themeFile);
+    p->color = strdup(iniparser_getstring(ini, "color:foreground", "default"));
+    p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 
     p->gradient = iniparser_getint(ini, "color:gradient", 0);
 
@@ -1235,6 +1220,9 @@ bool load_colors(char *themeFile, struct config_params *p, struct error_s *error
 
     iniparser_freedict(ini);
 #else
+    GetPrivateProfileString("color", "foreground", "default", p->color, 9, themeFile);
+    GetPrivateProfileString("color", "background", "default", p->bcolor, 9, themeFile);
+
     for (int i = 0; i < 8; ++i) {
         p->gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
     }

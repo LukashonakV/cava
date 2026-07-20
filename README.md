@@ -87,7 +87,7 @@ Optional components:
 * autoconf-archive (needed for setting up OpenGL)
 * [ncursesw dev files](http://www.gnu.org/software/ncurses/) (bundled in ncurses in arch)
 
-Only FFTW, iniparser and the build tools are actually required for CAVA to compile, but this will only give you the ability to read from fifo files. To capture audio directly from your system pipewire, pulseaudio, alsa, sndio, jack or portaudio dev files are required (depending on what audio system you are using).
+Only FFTW, iniparser and the build tools are actually required for CAVA to compile, but this will only give you the ability to read from fifo files. To capture audio directly from your system, additional audio development files may be needed depending on your input backend (pipewire, pulseaudio, alsa, sndio, jack or portaudio). On macOS, the built-in Core Audio framework is supported without extra audio capture libraries.
 
 Ncurses can be used as an alternative output method if you have issues with the default one. But it is not required.
 
@@ -157,7 +157,17 @@ Apple Silicon instructions tested on macOS Ventura.
 
 Windows:
 
-see separate readme in `cava_win` folder.
+Dependencies can be resolved with vcpkg in the cmake
+
+    cmake --preset vcpkg
+    cd build
+    cmake --build . --config Release
+
+pacman (msys2/mingw) can also be used
+    pacboy cc cmake fftw glew ninja SDL2
+    cmake -bin
+    cmake --build bin
+1
 
 #### Building
  First of all clone this repo and cd in to it, then run:
@@ -168,7 +178,9 @@ see separate readme in `cava_win` folder.
 
 If you have a recommended component installed, but do not wish to use it (perhaps if building a binary on one machine to be used on another), then the corresponding feature can be disabled during configuration (see configure --help for details).
 
-For windows there is a VS solution file in the `cava_win` folder.
+For windows CMake can be used.
+
+CMake can also be used for linux, but autoconf/automake remains the default supported build system.
 
 #### Installing
 
@@ -535,10 +547,29 @@ Note: squeezelite must be started with the `-v` flag to enable visualizer suppor
 
 ### macOS
 ```
-method = portaudio
+method = coreaudio
 ```
 
-Portaudio is the default and only supported way of capturing audio on macOS. Unfortunately portaudio can not capture audio directly from the output, but there are several ways to achieve this:
+Core Audio is now the default input backend on macOS. You can list input devices with:
+
+```
+method = coreaudio
+source = list
+```
+
+Then select a device by name, by 1-based device index, or keep `source = auto` for the default output device.
+Use `source = auto_input` if you want the default input device instead.
+
+On macOS 14.2+ (when built with CoreAudio tap support), you can capture system output directly without creating a loopback interface:
+
+```
+method = coreaudio
+source = tap
+```
+
+Use `source = tap_mono` for a mono mixdown.
+
+On systems without CoreAudio tap support, macOS does not expose system output mix directly to applications, so you need a loopback device to visualize speaker output. The same loopback options used with portaudio also work with coreaudio:
 
 **Background Music**
 
@@ -575,6 +606,8 @@ Note: Cava doesn't render correctly within the default macOS terminal. In order 
 ### Windows
 
 Should capture the audio from the default output device automatically. No config needed.
+
+Different `source` can be set in config.
 
 
 Running via ssh
