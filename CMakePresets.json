@@ -1,0 +1,22 @@
+{
+	"version": 3,
+	"configurePresets": [
+		{
+			"name": "default",
+			"binaryDir": "${sourceDir}/build",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "vcpkg",
+			"inherits": "default",
+			"cacheVariables": {
+				"CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+				"USING_VCPKG": "ON",
+				"VCPKG_TARGET_TRIPLET": "x64-windows-static",
+				"CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+			}
+		}
+	]
+}
