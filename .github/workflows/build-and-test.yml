@@ -139,6 +139,32 @@ jobs:
       - name: run non zero test
         run: ./cava -p example_files/test_configs/non_zero_test > /dev/null
 
+  build-macos-meson:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          brew install fftw libtool automake portaudio iniparser sdl2 meson ninja
+          ln -s /usr/local/bin/glibtoolize /usr/local/bin/libtoolize
+      - name: Run meson setup
+        run: |
+          LDFLAGS="-L/opt/homebrew/lib" \
+          CPPFLAGS="-I/opt/homebrew/include" \
+          meson setup -Dcpp_std=c++20 -Dbuild_target=all build
+      - name: Run ninja
+        run: ninja -C build
+      - name: run non zero test
+        run: ./build/cava -p example_files/test_configs/non_zero_test > /dev/null
+      - name: build cavacore test application
+        run: gcc -I include -c -g cavacore_test.c
+      - name: link cavacore test application
+        run: |
+          gcc -I include -o cavacore_test cavacore_test.c -L./build -lcava -lm -lfftw3
+      - name: run cavacore test application
+        run: |
+          DYLD_LIBRARY_PATH=./build:$DYLD_LIBRARY_PATH ./cavacore_test
+
   build-windows:
     runs-on: windows-latest
     steps:
