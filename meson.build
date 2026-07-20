@@ -214,7 +214,7 @@ if not get_option('input_coreaudio').disabled()
    if is_mac
       coreaudio_dep = dependency('appleframeworks', modules: ['CoreAudio', 'AudioUnit', 'CoreFoundation'], required: false)
 
-      if coreaudio_dep.found() and cc.has_header('CoreAudio/CoreAudio.h') and
+      if coreaudio_dep.found() and cc.has_header('CoreAudio/CoreAudio.h') and \
          cc.has_header('AudioUnit/AudioUnit.h')
          src_files += 'input/coreaudio.c'
          deps += coreaudio_dep
@@ -232,7 +232,7 @@ endif
 has_coreaudio_tap = false
 if not get_option('input_coreaudio_tap').disabled()
    if is_mac and has_coreaudio
-      if cc.has_header('CoreAudio/AudioHardwareTapping.h') and
+      if cc.has_header('CoreAudio/AudioHardwareTapping.h') and \
          cc.has_header('CoreAudio/CATapDescription.h')
          if objc_available
             foundation_dep = dependency('appleframeworks', modules: ['Foundation'], required: false)
