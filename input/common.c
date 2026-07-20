@@ -173,14 +173,14 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
 
 #ifdef COREAUDIO
     case INPUT_COREAUDIO:
-        audio.format = p.samplebits;
-        audio.rate = p.samplerate;
-        audio.channels = p.channels;
-        audio.threadparams = 1;
-        if (!strcmp(audio.source, "list")) {
+        audio->format = p.samplebits;
+        audio->rate = p.samplerate;
+        audio->channels = p.channels;
+        audio->threadparams = 1;
+        if (!strcmp(audio->source, "list")) {
             input_coreaudio((void *)&audio);
 #ifdef COREAUDIO_TAP
-        } else if (coreaudio_tap_source_enabled(audio.source)) {
+        } else if (coreaudio_tap_source_enabled(audio->source)) {
             ret = &input_coreaudio_tap;
 #endif
         } else {
