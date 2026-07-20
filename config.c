@@ -792,8 +792,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         iniparser_freedict(ini);
         ini = iniparser_load(themeFile);
     }
-    p->color = strdup(iniparser_getstring(ini, "color:foreground", "default"));
-    p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 #else
     outputMethod = malloc(sizeof(char) * 32);
     p->color = malloc(sizeof(char) * 14);
@@ -819,8 +817,6 @@ bool load_config(char configPath[PATH_MAX], struct config_params *p, struct erro
         free_config(p);
         return false;
     }
-    GetPrivateProfileString("color", "foreground", "default", p->color, 9, themeFile);
-    GetPrivateProfileString("color", "background", "default", p->bcolor, 9, themeFile);
 #endif
 
     result = load_colors(themeFile, p, error);
@@ -1189,6 +1185,8 @@ bool load_colors(char *themeFile, struct config_params *p, struct error_s *error
 #ifndef _WIN32
     dictionary *ini;
     ini = iniparser_load(themeFile);
+    p->color = strdup(iniparser_getstring(ini, "color:foreground", "default"));
+    p->bcolor = strdup(iniparser_getstring(ini, "color:background", "default"));
 
     p->gradient = iniparser_getint(ini, "color:gradient", 0);
 
@@ -1222,6 +1220,9 @@ bool load_colors(char *themeFile, struct config_params *p, struct error_s *error
 
     iniparser_freedict(ini);
 #else
+    GetPrivateProfileString("color", "foreground", "default", p->color, 9, themeFile);
+    GetPrivateProfileString("color", "background", "default", p->bcolor, 9, themeFile);
+
     for (int i = 0; i < 8; ++i) {
         p->gradient_colors[i] = (char *)malloc(sizeof(char *) * 9);
     }
