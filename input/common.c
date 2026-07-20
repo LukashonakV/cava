@@ -173,9 +173,9 @@ ptr get_input(struct audio_data *audio, struct config_params *prm) {
 
 #ifdef COREAUDIO
     case INPUT_COREAUDIO:
-        audio->format = p.samplebits;
-        audio->rate = p.samplerate;
-        audio->channels = p.channels;
+        audio->format = prm->samplebits;
+        audio->rate = prm->samplerate;
+        audio->channels = prm->channels;
         audio->threadparams = 1;
         if (!strcmp(audio->source, "list")) {
             input_coreaudio((void *)&audio);
