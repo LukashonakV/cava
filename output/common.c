@@ -299,7 +299,7 @@ int audio_raw_init(struct audio_data *audio, struct audio_raw *audio_raw, struct
 
     if (!prm->waveform) {
         audio_raw->number_of_bars =
-            (audio_raw->number_of_bars / audio_raw->output_channels) * (*plan)->audio_channels;
+            (audio_raw->number_of_bars / audio_raw->output_channels) * audio_raw->output_channels;
     }
 
     // if the sample rate is unusual high or low, we need to adjust the input buffer size
