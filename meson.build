@@ -75,8 +75,9 @@ endif
 add_project_arguments('-DPACKAGE="@0@"'.format(meson.project_name()), language: 'c')
 add_project_arguments('-DVERSION="@0@"'.format(project_version), language: 'c')
 add_project_arguments('-DLIB_VERSION="@0@"'.format(project_version), language: 'c')
-add_project_arguments('-D_POSIX_SOURCE', language: 'c')
-add_project_arguments('-D_POSIX_C_SOURCE=200809L', language: 'c')
+if not is_freebsd
+   add_project_arguments('-D_POSIX_C_SOURCE=200809L', language: 'c')
+endif
 add_project_arguments('-D_XOPEN_SOURCE_EXTENDED', language: 'c')
 
 if not get_option('debug')
@@ -301,7 +302,7 @@ int main(int argc, char** argv) {
 
    if have_oss
       src_files += 'input/oss.c'
-      add_project_arguments('-DOSS -D__BSD_VISIBLE', language: 'c')
+      add_project_arguments('-DOSS', language: 'c')
    else
       warning('No oss dev files found. building without oss')
    endif
