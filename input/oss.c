@@ -1,4 +1,4 @@
-#inlcude "oss.h"
+#include "oss.h"
 
 #include <sys/ioctl.h>
 #include <sys/soundcard.h>
