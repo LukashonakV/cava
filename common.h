@@ -20,6 +20,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 #include "cava/common.h"
 #include "util.h"
